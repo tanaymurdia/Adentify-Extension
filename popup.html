@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Basketball Classifier</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <h1>Basketball Classifier</h1>
+    <div class="controls">
+      <button id="startBtn" class="btn">Start Overlay</button>
+      <div class="setting">
+        <label for="sensitivity">Scene Sensitivity:</label>
+        <input type="range" id="sensitivity" min="5" max="50" value="30">
+        <span id="sensitivityValue">30</span>
+      </div>
+      <div class="setting" style="display: none;">
+        <input type="checkbox" id="volumeControl" disabled>
+        <label for="volumeControl">Enable volume control (coming soon)</label>
+      </div>
+    </div>
+    <div class="status">
+      <p>Model Status: <span id="modelStatus">Loading...</span></p>
+      <p class="note">Using quantized model for better performance</p>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html> 

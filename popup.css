@@ -1,0 +1,112 @@
+:root {
+  --dark-bg: #121212;
+  --light-text: #f1f1f1;
+  --red-color: #ff3e3e;
+  --secondary-bg: #1e1e1e;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--dark-bg);
+  color: var(--light-text);
+  font-family: 'Consolas', monospace;
+  width: 300px;
+  height: 350px;
+}
+
+.popup-container {
+  padding: 15px;
+}
+
+h1 {
+  color: var(--red-color);
+  font-size: 18px;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.btn {
+  box-sizing: border-box;
+  background-color: var(--secondary-bg);
+  color: var(--red-color);
+  border: 1px solid var(--red-color);
+  border-radius: 4px;
+  padding: 8px 15px;
+  font-weight: bold;
+  font-size: 14px;
+  cursor: pointer;
+  width: 100%;
+  margin-bottom: 15px;
+}
+
+.btn:hover {
+  background-color: var(--red-color);
+  color: var(--dark-bg);
+}
+
+.btn:active {
+  background-color: #b71c1c;
+  color: var(--dark-bg);
+}
+
+.controls {
+  margin-bottom: 20px;
+}
+
+.setting {
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+}
+
+.setting label {
+  flex-grow: 1;
+  margin-right: 10px;
+}
+
+.setting input[type="range"] {
+  width: 120px;
+}
+
+.setting span {
+  width: 25px;
+  text-align: right;
+}
+
+.status {
+  margin-top: 20px;
+  padding: 10px;
+  background-color: var(--secondary-bg);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.note {
+  font-size: 11px;
+  color: #aaa;
+  margin-top: 5px;
+  font-style: italic;
+}
+
+input[type="checkbox"] {
+  margin-right: 10px;
+}
+
+input[type="range"] {
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  height: 8px;
+  background: var(--secondary-bg);
+  border: 1px solid var(--red-color);
+  border-radius: 4px;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--red-color);
+  border-radius: 50%;
+  cursor: pointer;
+} 
