@@ -156,13 +156,17 @@ function stopContinuousCapture() {
   
   // Notify popup that continuous capture has stopped (if open)
   if (popupOpen) {
-    chrome.runtime.sendMessage({
-      action: "captureStatusChanged",
-      isContinuous: false
-    }).catch(err => {
-      // Handle error if popup is closed
-      console.log("Could not send message to popup:", err);
-    });
+    try {
+      chrome.runtime.sendMessage({
+        action: "captureStatusChanged",
+        isContinuous: false
+      }).catch(err => {
+        // Handle error if popup is closed
+        console.log("Could not send message to popup:", err);
+      });
+    } catch (err) {
+      console.log("Error sending capture status update:", err);
+    }
   }
 }
 
@@ -198,25 +202,34 @@ function captureTab(tabId, isContinuous) {
         // Process the captured image if popup is open, otherwise do it in the background
         if (popupOpen) {
           // Send the image to the popup for processing
-          chrome.runtime.sendMessage({
-            action: "screenshotCaptured",
-            imageUrl: dataUrl,
-            isContinuous: isContinuous
-          }).catch(err => {
-            console.log("Could not send screenshot to popup:", err);
-            
-            // If we can't send to popup but are in continuous mode,
-            // we should process the image ourselves to continue the loop
+          try {
+            chrome.runtime.sendMessage({
+              action: "screenshotCaptured",
+              imageUrl: dataUrl,
+              isContinuous: isContinuous
+            }).catch(err => {
+              console.log("Could not send screenshot to popup:", err);
+              
+              // If we can't send to popup but are in continuous mode,
+              // we should process the image ourselves to continue the loop
+              if (isContinuous) {
+                processImageWithoutDOM(dataUrl);
+              } else {
+                // For single capture, just stop if popup is not available
+                isCapturing = false;
+              }
+            });
+          } catch (err) {
+            console.log("Error sending screenshot to popup:", err);
             if (isContinuous) {
-              processImageInBackground(dataUrl);
+              processImageWithoutDOM(dataUrl);
             } else {
-              // For single capture, just stop if popup is not available
               isCapturing = false;
             }
-          });
+          }
         } else if (isContinuous) {
           // If popup is closed but we're in continuous mode, process in background
-          processImageInBackground(dataUrl);
+          processImageWithoutDOM(dataUrl);
         } else {
           // Single capture with no popup to display it - just stop
           isCapturing = false;
@@ -247,66 +260,41 @@ function handleCaptureError(errorMessage, isContinuous) {
     
     // Notify popup if it's open
     if (popupOpen) {
-      chrome.runtime.sendMessage({
-        action: "captureError",
-        error: errorMessage
-      }).catch(err => console.log("Could not send error to popup:", err));
+      try {
+        chrome.runtime.sendMessage({
+          action: "captureError",
+          error: errorMessage
+        }).catch(err => console.log("Could not send error to popup:", err));
+      } catch (err) {
+        console.log("Error sending capture error:", err);
+      }
     }
   }
 }
 
 // Process image in background when popup is closed
-function processImageInBackground(dataUrl) {
-  // For background processing, we'll use a simple approach
-  // In a real extension, you might use a worker or offscreen document for this
+// This version doesn't use DOM APIs like Image which aren't available in service workers
+function processImageWithoutDOM(dataUrl) {
+  // In a service worker, we can't use DOM APIs like Image
+  // Instead, we'll just simulate a response for continuity
+  console.log("Processing image in service worker (simulated)");
   
-  // Create an Image object to load the data URL
-  const img = new Image();
-  img.onload = function() {
-    try {
-      // Create a canvas to resize the image
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      
-      // Set canvas size to target size (224x224)
-      const targetSize = 224;
-      canvas.width = targetSize;
-      canvas.height = targetSize;
-      
-      // Draw and resize image on canvas
-      ctx.drawImage(img, 0, 0, targetSize, targetSize);
-      
-      // We're just simulating the processing here without actually running the model
-      // In a real implementation, you'd load the ONNX model and run inference
-      console.log("Background processed image (simulated)");
-      
-      // Store a fake result for demonstration
-      lastResult = {
-        isBasketball: Math.random() > 0.5,
-        confidence: 0.5 + Math.random() * 0.5
-      };
-      
-      // Signal that processing is complete so the next capture can happen
-      isCapturing = false;
-      
-      // If continuous capture is active, schedule the next capture
-      if (continuousCapture && targetTabId) {
-        setTimeout(() => {
-          if (continuousCapture) {
-            captureTab(targetTabId, true);
-          }
-        }, captureDelay);
+  // Generate a fake result - in a real extension, you might use a worker
+  // or offscreen document API to do the actual processing
+  lastResult = {
+    isBasketball: Math.random() > 0.5,
+    confidence: 0.5 + Math.random() * 0.5
+  };
+  
+  // Signal that processing is complete so the next capture can happen
+  isCapturing = false;
+  
+  // If continuous capture is active, schedule the next capture
+  if (continuousCapture && targetTabId) {
+    setTimeout(() => {
+      if (continuousCapture) {
+        captureTab(targetTabId, true);
       }
-    } catch (error) {
-      console.error("Error in background processing:", error);
-      handleCaptureError(error.message, true);
-    }
-  };
-  
-  img.onerror = function() {
-    console.error("Failed to load image in background");
-    handleCaptureError("Failed to load image", true);
-  };
-  
-  img.src = dataUrl;
+    }, captureDelay);
+  }
 } 

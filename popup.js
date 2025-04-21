@@ -27,37 +27,46 @@ document.addEventListener('DOMContentLoaded', function() {
   let fpsUpdateInterval = 1000; // Update FPS every second
 
   // Notify background script that popup is open
-  chrome.runtime.sendMessage({action: "popupOpened"}, function(response) {
-    console.log("Popup opened, got state from background:", response);
-    if (response) {
-      if (response.isCapturing) {
-        disableButtons();
-        statusMessage.textContent = 'Capture in progress...';
-        progressBar.style.width = '10%';
-        isProcessing = true;
-      }
-      
-      if (response.isContinuous) {
-        isContinuousCapture = true;
-        updateCaptureUI(true);
+  try {
+    chrome.runtime.sendMessage({action: "popupOpened"}, function(response) {
+      console.log("Popup opened, got state from background:", response);
+      if (response) {
+        if (response.isCapturing) {
+          disableButtons();
+          statusMessage.textContent = 'Capture in progress...';
+          progressBar.style.width = '10%';
+          isProcessing = true;
+        }
         
-        // Show FPS counter if continuous capture is active
-        frameCount = 0;
-        lastFpsUpdateTime = Date.now();
-        fpsValue.textContent = '0';
-        fpsCounter.classList.remove('hidden');
+        if (response.isContinuous) {
+          isContinuousCapture = true;
+          updateCaptureUI(true);
+          
+          // Show FPS counter if continuous capture is active
+          frameCount = 0;
+          lastFpsUpdateTime = Date.now();
+          fpsValue.textContent = '0';
+          fpsCounter.classList.remove('hidden');
+        }
+        
+        // If there's a last result from background processing, display it
+        if (response.lastResult) {
+          displayBackgroundResult(response.lastResult);
+        }
       }
-      
-      // If there's a last result from background processing, display it
-      if (response.lastResult) {
-        displayBackgroundResult(response.lastResult);
-      }
-    }
-  });
+    });
+  } catch (err) {
+    console.log("Error sending popupOpened message:", err);
+  }
 
   // Register close event to notify background when popup closes
   window.addEventListener('unload', function() {
-    chrome.runtime.sendMessage({action: "popupClosed"});
+    try {
+      // Using sync message to ensure it gets sent before popup closes
+      chrome.runtime.sendMessage({action: "popupClosed"});
+    } catch (err) {
+      console.log("Error sending popupClosed message:", err);
+    }
   });
 
   // Listen for messages from background script
@@ -67,18 +76,23 @@ document.addEventListener('DOMContentLoaded', function() {
     if (message.action === "screenshotCaptured") {
       // Process the captured screenshot
       handleCapturedImage(message.imageUrl, message.isContinuous);
-      return true;
+      // Send immediate response to prevent async issues
+      sendResponse({received: true});
+      return false;
     } else if (message.action === "captureError") {
       // Handle capture error
       resetUI();
       statusMessage.textContent = `Capture error: ${message.error}`;
-      return true;
+      sendResponse({received: true});
+      return false;
     } else if (message.action === "captureStatusChanged") {
       // Update UI when capture status changes
       isContinuousCapture = message.isContinuous;
       updateCaptureUI(isContinuousCapture);
-      return true;
+      sendResponse({received: true});
+      return false;
     }
+    return false;
   });
 
   // Event listeners
@@ -107,12 +121,18 @@ document.addEventListener('DOMContentLoaded', function() {
     resultContainer.className = '';
     
     // Request the background script to capture the tab
-    chrome.runtime.sendMessage({action: "singleCapture"}, (response) => {
-      if (response && !response.success) {
-        resetUI();
-        statusMessage.textContent = `Capture failed: ${response.error || 'Unknown error'}`;
-      }
-    });
+    try {
+      chrome.runtime.sendMessage({action: "singleCapture"}, (response) => {
+        if (response && !response.success) {
+          resetUI();
+          statusMessage.textContent = `Capture failed: ${response.error || 'Unknown error'}`;
+        }
+      });
+    } catch (err) {
+      console.log("Error sending singleCapture message:", err);
+      resetUI();
+      statusMessage.textContent = "Failed to start capture";
+    }
   });
 
   startCaptureButton.addEventListener('click', () => {
@@ -135,27 +155,43 @@ document.addEventListener('DOMContentLoaded', function() {
     progressBar.style.width = '10%';
     
     // Request the background script to start continuous capture
-    chrome.runtime.sendMessage({action: "startCapture"}, (response) => {
-      if (response && !response.success) {
-        resetUI();
-        statusMessage.textContent = `Continuous capture failed: ${response.error || 'Unknown error'}`;
-      }
-    });
+    try {
+      chrome.runtime.sendMessage({action: "startCapture"}, (response) => {
+        if (response && !response.success) {
+          resetUI();
+          statusMessage.textContent = `Continuous capture failed: ${response.error || 'Unknown error'}`;
+        }
+      });
+    } catch (err) {
+      console.log("Error sending startCapture message:", err);
+      resetUI();
+      isContinuousCapture = false;
+      updateCaptureUI(false);
+      statusMessage.textContent = "Failed to start continuous capture";
+    }
   });
 
   stopCaptureButton.addEventListener('click', () => {
     // Request the background script to stop continuous capture
-    chrome.runtime.sendMessage({action: "stopCapture"});
-    
-    // Update UI immediately while waiting for background to confirm
-    isContinuousCapture = false;
-    updateCaptureUI(false);
-    statusMessage.textContent = 'Stopping capture...';
-    
-    // Hide FPS counter after a short delay
-    setTimeout(() => {
-      fpsCounter.classList.add('hidden');
-    }, 2000);
+    try {
+      chrome.runtime.sendMessage({action: "stopCapture"});
+      
+      // Update UI immediately while waiting for background to confirm
+      isContinuousCapture = false;
+      updateCaptureUI(false);
+      statusMessage.textContent = 'Stopping capture...';
+      
+      // Hide FPS counter after a short delay
+      setTimeout(() => {
+        fpsCounter.classList.add('hidden');
+      }, 2000);
+    } catch (err) {
+      console.log("Error sending stopCapture message:", err);
+      // Still update UI even if message failed
+      isContinuousCapture = false;
+      updateCaptureUI(false);
+      statusMessage.textContent = 'Stopping capture (error occurred)';
+    }
   });
 
   imageUpload.addEventListener('change', handleImageUpload);
@@ -187,10 +223,22 @@ document.addEventListener('DOMContentLoaded', function() {
     
     try {
       // Load and run the model
-      await loadAndRunModel(file);
+      const result = await loadAndRunModel(file);
+      
+      // Store the result time
+      lastResultTime = Date.now();
+      
+      // Send the result back to the background script
+      if (result) {
+        sendProcessingComplete(result);
+      } else {
+        // If no result, just signal completion
+        sendProcessingComplete();
+      }
     } catch (error) {
       console.error('Error processing image:', error);
       statusMessage.textContent = `Error: ${error.message}`;
+      sendProcessingComplete();
     } finally {
       // Re-enable buttons and reset processing flag
       resetUI();
@@ -229,24 +277,10 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Send the result back to the background script
       if (result) {
-        chrome.runtime.sendMessage({
-          action: "processingComplete",
-          result: {
-            isBasketball: result.isBasketball,
-            confidence: result.confidence
-          }
-        }).catch(err => {
-          console.log("Could not send processing complete message:", err);
-          // If we can't communicate with background, reset UI
-          resetUI();
-        });
+        sendProcessingComplete(result);
       } else {
         // If no result, just signal completion
-        chrome.runtime.sendMessage({action: "processingComplete"}).catch(err => {
-          console.log("Could not send processing complete message:", err);
-          // If we can't communicate with background, reset UI
-          resetUI();
-        });
+        sendProcessingComplete();
       }
     } catch (error) {
       console.error('Error processing screenshot:', error);
@@ -254,21 +288,40 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // If an error occurred during continuous capture, stop it
       if (isContinuous) {
-        chrome.runtime.sendMessage({action: "stopCapture"});
-        isContinuousCapture = false;
-        updateCaptureUI(false);
+        try {
+          chrome.runtime.sendMessage({action: "stopCapture"});
+          isContinuousCapture = false;
+          updateCaptureUI(false);
+        } catch (err) {
+          console.log("Error sending stopCapture message:", err);
+        }
       }
       
       // Signal that processing is complete despite the error
-      chrome.runtime.sendMessage({action: "processingComplete"}).catch(err => {
-        console.log("Could not send processing complete message:", err);
-        resetUI();
-      });
+      sendProcessingComplete();
     } finally {
       // If not in continuous capture, reset UI
       if (!isContinuous) {
         resetUI();
       }
+    }
+  }
+
+  // Helper function to safely send processing completion message
+  function sendProcessingComplete(result = null) {
+    try {
+      const message = {action: "processingComplete"};
+      if (result) {
+        message.result = {
+          isBasketball: result.isBasketball,
+          confidence: result.confidence
+        };
+      }
+      chrome.runtime.sendMessage(message);
+    } catch (err) {
+      console.log("Could not send processing complete message:", err);
+      // If we can't communicate with background, reset UI
+      resetUI();
     }
   }
 
