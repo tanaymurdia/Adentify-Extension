@@ -1,147 +1,172 @@
-document.addEventListener('DOMContentLoaded', () => {
-  const startBtn = document.getElementById('startBtn');
-  const sensitivitySlider = document.getElementById('sensitivity');
-  const sensitivityValue = document.getElementById('sensitivityValue');
-  const volumeControl = document.getElementById('volumeControl');
-  const modelStatus = document.getElementById('modelStatus');
-  
-  // Initialize settings from storage
-  chrome.storage.sync.get({
-    sensitivity: 30,
-    overlayActive: false
-  }, (items) => {
-    sensitivitySlider.value = items.sensitivity;
-    sensitivityValue.textContent = items.sensitivity;
+// Wait for DOM to be fully loaded
+document.addEventListener('DOMContentLoaded', function() {
+  // Elements
+  const uploadButton = document.getElementById('uploadButton');
+  const imageUpload = document.getElementById('imageUpload');
+  const imagePreview = document.getElementById('imagePreview');
+  const resultContainer = document.getElementById('resultContainer');
+  const resultText = document.getElementById('resultText');
+  const confidenceText = document.getElementById('confidenceText');
+  const statusMessage = document.getElementById('statusMessage');
+  const progressBar = document.getElementById('progressBar');
+
+  // Global reference to ort
+  let ort;
+
+  // Event listeners
+  uploadButton.addEventListener('click', () => {
+    imageUpload.click();
+  });
+
+  imageUpload.addEventListener('change', handleImageUpload);
+
+  async function handleImageUpload(e) {
+    if (!e.target.files.length) return;
     
-    // Hide volume control as it's disabled
-    if (volumeControl) {
-      volumeControl.parentElement.style.display = 'none';
-    }
+    const file = e.target.files[0];
     
-    // Update button text if overlay is already active
-    if (items.overlayActive) {
-      startBtn.textContent = 'Stop Overlay';
-      startBtn.classList.add('active');
-    }
-  });
-  
-  // Check model status
-  chrome.runtime.sendMessage({ action: 'checkModelStatus' }, (response) => {
-    if (response && response.status) {
-      modelStatus.textContent = response.status;
-    }
-  });
-  
-  // Listen for model status updates
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'modelStatusUpdate' && modelStatus) {
-      modelStatus.textContent = request.status;
-    }
-    return true;
-  });
-  
-  // Handle sensitivity slider
-  sensitivitySlider.addEventListener('input', () => {
-    const value = sensitivitySlider.value;
-    sensitivityValue.textContent = value;
+    // Display preview
+    imagePreview.src = URL.createObjectURL(file);
+    imagePreview.style.display = 'block';
     
-    chrome.storage.sync.set({ sensitivity: parseInt(value) });
-    chrome.runtime.sendMessage({ 
-      action: 'updateSettings', 
-      settings: { sensitivity: parseInt(value) } 
-    });
-  });
-  
-  // Function to check if content script is loaded and inject if needed
-  async function ensureContentScriptLoaded(tabId) {
+    // Reset UI
+    resultContainer.style.display = 'none';
+    resultContainer.className = '';
+    progressBar.style.width = '0%';
+    statusMessage.textContent = 'Loading model...';
+    
     try {
-      // First, try to ping the content script
-      const response = await chrome.tabs.sendMessage(tabId, { action: 'ping' }).catch(e => null);
-      
-      // If we got a response, content script is loaded
-      if (response && response.pong) {
-        return true;
-      }
-      
-      // If we get here, we need to inject the content script
-      console.log('Content script not found, injecting...');
-      
-      // Inject CSS first
-      await chrome.scripting.insertCSS({
-        target: { tabId: tabId },
-        files: ['content.css']
-      });
-      
-      // Then inject JavaScript
-      await chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        files: ['content.js']
-      });
-      
-      // Wait a bit for the script to initialize
-      return new Promise(resolve => setTimeout(() => resolve(true), 500));
+      // Load and run the model
+      await loadAndRunModel(file);
     } catch (error) {
-      console.error('Error ensuring content script is loaded:', error);
-      return false;
+      console.error('Error processing image:', error);
+      statusMessage.textContent = `Error: ${error.message}`;
     }
   }
-  
-  // Handle start/stop button
-  startBtn.addEventListener('click', async () => {
-    const isActive = startBtn.classList.contains('active');
+
+  async function loadAndRunModel(imageFile) {
+    // Update progress
+    progressBar.style.width = '20%';
+    statusMessage.textContent = 'Loading ONNX runtime...';
     
     try {
-      // Get the current active tab
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tabs || !tabs[0]) {
-        alert('Cannot access the current tab.');
-        return;
+      // Import onnxruntime-web
+      if (!ort) {
+        ort = await import('onnxruntime-web');
       }
       
-      const tab = tabs[0];
+      progressBar.style.width = '40%';
+      statusMessage.textContent = 'Loading model...';
+
+      // Create session options
+      const sessionOptions = {
+        executionProviders: ['wasm'],
+        graphOptimizationLevel: 'all'
+      };
+
+      // Create session and load model
+      const modelPath = chrome.runtime.getURL('models/hypernetwork_basketball_classifier_quantized.onnx');
+      const session = await ort.InferenceSession.create(modelPath, sessionOptions);
+
+      progressBar.style.width = '60%';
+      statusMessage.textContent = 'Processing image...';
+
+      // Preprocess the image
+      const processedImageTensor = await preprocessImage(imageFile);
       
-      // Check if we can access the tab
-      if (!tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('about:')) {
-        alert('The extension cannot run on this page due to browser restrictions.');
-        return;
-      }
+      progressBar.style.width = '80%';
+      statusMessage.textContent = 'Running inference...';
+
+      // Run inference
+      const inputName = session.inputNames[0];
+      const feeds = {};
+      feeds[inputName] = processedImageTensor;
       
-      if (isActive) {
-        // Stop overlay - attempt to ensure content script is loaded first
-        await ensureContentScriptLoaded(tab.id);
-        
-        try {
-          await chrome.tabs.sendMessage(tab.id, { action: 'stopOverlay' });
-        } catch (error) {
-          console.log('Could not connect to content script:', error);
-        }
-        
-        // Update UI regardless of success
-        startBtn.textContent = 'Start Overlay';
-        startBtn.classList.remove('active');
-        chrome.storage.sync.set({ overlayActive: false });
-      } else {
-        // Start overlay - ensure content script is loaded first
-        const contentScriptLoaded = await ensureContentScriptLoaded(tab.id);
-        
-        if (!contentScriptLoaded) {
-          alert('Could not load the extension on this page. Please refresh and try again.');
-          return;
-        }
-        
-        try {
-          await chrome.tabs.sendMessage(tab.id, { action: 'startOverlay' });
-          startBtn.textContent = 'Stop Overlay';
-          startBtn.classList.add('active');
-          chrome.storage.sync.set({ overlayActive: true });
-        } catch (error) {
-          console.error('Error starting overlay:', error);
-          alert('Could not connect to the page. Please refresh the page and try again.');
-        }
-      }
+      const results = await session.run(feeds);
+      const outputName = session.outputNames[0];
+      const prediction = results[outputName].data[0];
+
+      // Update progress and display result
+      progressBar.style.width = '100%';
+      displayResults(prediction);
     } catch (error) {
-      console.error('Error in start/stop button handler:', error);
-      alert('An error occurred. Please refresh the page and try again.');
+      console.error('Error in model processing:', error);
+      statusMessage.textContent = `Error: ${error.message}`;
+      throw error;
     }
-  });
+  }
+
+  async function preprocessImage(imageFile) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      
+      img.onload = () => {
+        try {
+          // Create a canvas to resize the image
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          
+          // Set canvas size to target size (224x224)
+          const targetSize = 224;
+          canvas.width = targetSize;
+          canvas.height = targetSize;
+          
+          // Draw and resize image on canvas
+          ctx.drawImage(img, 0, 0, targetSize, targetSize);
+          
+          // Get image data
+          const imageData = ctx.getImageData(0, 0, targetSize, targetSize);
+          const data = imageData.data;
+          
+          // Create Float32Array for the model input
+          // Use NHWC format (batch, height, width, channels) instead of NCHW
+          const float32Data = new Float32Array(targetSize * targetSize * 3);
+          
+          // Rearrange the data to match the expected NHWC format
+          let pixelIndex = 0;
+          for (let h = 0; h < targetSize; h++) {
+            for (let w = 0; w < targetSize; w++) {
+              const offset = (h * targetSize + w) * 4; // RGBA format from canvas
+              float32Data[pixelIndex++] = data[offset];     // R
+              float32Data[pixelIndex++] = data[offset + 1]; // G 
+              float32Data[pixelIndex++] = data[offset + 2]; // B
+            }
+          }
+          
+          // Create tensor with NHWC format [1, 224, 224, 3] (batch, height, width, channels)
+          const tensor = new ort.Tensor('float32', float32Data, [1, targetSize, targetSize, 3]);
+          
+          resolve(tensor);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      
+      img.onerror = () => {
+        reject(new Error('Failed to load image'));
+      };
+      
+      img.src = URL.createObjectURL(imageFile);
+    });
+  }
+
+  function displayResults(prediction) {
+    // Display the results
+    const isBasketball = prediction > 0.5;
+    const confidence = isBasketball ? prediction : 1 - prediction;
+    const percentConfidence = (confidence * 100).toFixed(2);
+    
+    resultContainer.style.display = 'block';
+    
+    if (isBasketball) {
+      resultContainer.className = 'basketball';
+      resultText.textContent = 'Basketball detected!';
+    } else {
+      resultContainer.className = 'not-basketball';
+      resultText.textContent = 'Not a basketball image';
+    }
+    
+    confidenceText.textContent = `Confidence: ${percentConfidence}%`;
+    statusMessage.textContent = 'Analysis complete';
+  }
 }); 

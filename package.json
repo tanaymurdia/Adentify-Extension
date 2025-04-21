@@ -1,18 +1,29 @@
 {
+  "name": "adentify-extension",
+  "version": "1.0.0",
+  "description": "This Chrome extension uses an AI model to detect basketball content in images and provides real-time classification results.",
+  "main": "background.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "webpack --mode production",
+    "dev": "webpack --watch --mode development",
+    "create-icons": "node images/create_icons.js"
+  },
+  "keywords": [
+    "chrome-extension",
+    "basketball",
+    "classifier",
+    "onnx",
+    "machine-learning"
+  ],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
     "onnxruntime-web": "^1.21.0"
   },
-  "name": "adentify-extension",
-  "version": "1.0.0",
-  "description": "This Chrome extension uses an AI model to detect basketball content in web pages and provides a floating overlay with real-time classification results.",
-  "main": "background.js",
-  "directories": {
-    "lib": "lib"
-  },
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC"
+  "devDependencies": {
+    "copy-webpack-plugin": "^12.0.2",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4"
+  }
 }

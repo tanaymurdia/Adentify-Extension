@@ -1,31 +1,103 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Basketball Classifier</title>
-  <link rel="stylesheet" href="popup.css">
+  <meta charset="utf-8">
+  <title>Basketball Image Classifier</title>
+  <style>
+    body {
+      width: 350px;
+      min-height: 300px;
+      padding: 10px;
+      font-family: Arial, sans-serif;
+    }
+    h1 {
+      font-size: 18px;
+      color: #333;
+      text-align: center;
+    }
+    .upload-container {
+      margin: 15px 0;
+      text-align: center;
+    }
+    #imagePreview {
+      max-width: 100%;
+      max-height: 200px;
+      margin: 10px auto;
+      display: none;
+    }
+    #resultContainer {
+      margin-top: 15px;
+      padding: 10px;
+      border-radius: 4px;
+      display: none;
+      text-align: center;
+    }
+    .basketball {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .not-basketball {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .progress {
+      height: 5px;
+      width: 100%;
+      background-color: #e9ecef;
+      border-radius: 3px;
+      margin: 5px 0;
+    }
+    .progress-bar {
+      height: 100%;
+      background-color: #007bff;
+      border-radius: 3px;
+      transition: width 0.3s;
+    }
+    .status {
+      color: #666;
+      font-size: 12px;
+      text-align: center;
+      margin: 5px 0;
+    }
+    button {
+      background-color: #4285F4;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #3367d6;
+    }
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+  </style>
 </head>
 <body>
-  <div class="popup-container">
-    <h1>Basketball Classifier</h1>
-    <div class="controls">
-      <button id="startBtn" class="btn">Start Overlay</button>
-      <div class="setting">
-        <label for="sensitivity">Scene Sensitivity:</label>
-        <input type="range" id="sensitivity" min="5" max="50" value="30">
-        <span id="sensitivityValue">30</span>
-      </div>
-      <div class="setting" style="display: none;">
-        <input type="checkbox" id="volumeControl" disabled>
-        <label for="volumeControl">Enable volume control (coming soon)</label>
-      </div>
-    </div>
-    <div class="status">
-      <p>Model Status: <span id="modelStatus">Loading...</span></p>
-      <p class="note">Using quantized model for better performance</p>
-    </div>
+  <h1>Basketball Image Classifier</h1>
+  
+  <div class="upload-container">
+    <input type="file" id="imageUpload" accept="image/*" style="display: none;">
+    <button id="uploadButton">Upload Image</button>
   </div>
+  
+  <img id="imagePreview" alt="Preview">
+  
+  <div id="statusMessage" class="status"></div>
+  <div class="progress">
+    <div id="progressBar" class="progress-bar" style="width: 0%"></div>
+  </div>
+  
+  <div id="resultContainer">
+    <h2 id="resultText"></h2>
+    <div id="confidenceText"></div>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html> 
