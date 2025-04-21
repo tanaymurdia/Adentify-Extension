@@ -2,6 +2,7 @@
 document.addEventListener('DOMContentLoaded', function() {
   // Elements
   const uploadButton = document.getElementById('uploadButton');
+  const captureButton = document.getElementById('captureButton');
   const imageUpload = document.getElementById('imageUpload');
   const imagePreview = document.getElementById('imagePreview');
   const resultContainer = document.getElementById('resultContainer');
@@ -10,20 +11,94 @@ document.addEventListener('DOMContentLoaded', function() {
   const statusMessage = document.getElementById('statusMessage');
   const progressBar = document.getElementById('progressBar');
 
-  // Global reference to ort
-  let ort;
+  // State flags
+  let isProcessing = false;
+  let ort = null;
+
+  // Check if there's a capture in progress when popup opens
+  chrome.runtime.sendMessage({action: "checkCapturing"}, function(response) {
+    if (response && response.isCapturing) {
+      captureButton.disabled = true;
+      uploadButton.disabled = true;
+      statusMessage.textContent = 'Capture in progress...';
+      progressBar.style.width = '10%';
+      isProcessing = true;
+    }
+  });
+
+  // Listen for messages from background script
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.action === "screenshotCaptured") {
+      // Process the captured screenshot
+      handleCapturedImage(message.imageUrl);
+      return true;
+    } else if (message.action === "captureError") {
+      // Handle capture error
+      captureButton.disabled = false;
+      uploadButton.disabled = false;
+      statusMessage.textContent = `Capture error: ${message.error}`;
+      progressBar.style.width = '0%';
+      isProcessing = false;
+      return true;
+    }
+  });
 
   // Event listeners
   uploadButton.addEventListener('click', () => {
+    if (isProcessing) {
+      statusMessage.textContent = 'Please wait for current processing to complete';
+      return;
+    }
     imageUpload.click();
+  });
+
+  captureButton.addEventListener('click', () => {
+    if (isProcessing) {
+      statusMessage.textContent = 'Please wait for current processing to complete';
+      return;
+    }
+    
+    // Disable buttons and update UI
+    captureButton.disabled = true;
+    uploadButton.disabled = true;
+    isProcessing = true;
+    
+    statusMessage.textContent = 'Capturing tab...';
+    progressBar.style.width = '10%';
+    
+    // Reset result display
+    resultContainer.style.display = 'none';
+    resultContainer.className = '';
+    
+    // Request the background script to capture the tab
+    chrome.runtime.sendMessage({action: "captureTab"}, (response) => {
+      if (response && !response.success) {
+        statusMessage.textContent = `Capture failed: ${response.error || 'Unknown error'}`;
+        captureButton.disabled = false;
+        uploadButton.disabled = false;
+        progressBar.style.width = '0%';
+        isProcessing = false;
+      }
+    });
   });
 
   imageUpload.addEventListener('change', handleImageUpload);
 
+  // Process an uploaded image
   async function handleImageUpload(e) {
+    if (isProcessing) {
+      statusMessage.textContent = 'Please wait for current processing to complete';
+      return;
+    }
+    
     if (!e.target.files.length) return;
     
     const file = e.target.files[0];
+    
+    // Set processing flag and disable buttons
+    isProcessing = true;
+    captureButton.disabled = true;
+    uploadButton.disabled = true;
     
     // Display preview
     imagePreview.src = URL.createObjectURL(file);
@@ -41,12 +116,52 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (error) {
       console.error('Error processing image:', error);
       statusMessage.textContent = `Error: ${error.message}`;
+    } finally {
+      // Re-enable buttons and reset processing flag
+      captureButton.disabled = false;
+      uploadButton.disabled = false;
+      isProcessing = false;
+    }
+  }
+
+  // Process a captured screenshot
+  async function handleCapturedImage(imageUrl) {
+    // Display preview
+    imagePreview.src = imageUrl;
+    imagePreview.style.display = 'block';
+    
+    // Reset UI for results
+    resultContainer.style.display = 'none';
+    resultContainer.className = '';
+    progressBar.style.width = '20%';
+    statusMessage.textContent = 'Processing screenshot...';
+    
+    try {
+      // Convert data URL to blob
+      const blob = await fetch(imageUrl).then(r => r.blob());
+      
+      // Create a File object from the blob
+      const file = new File([blob], "screenshot.png", { type: "image/png" });
+      
+      // Load and run the model
+      await loadAndRunModel(file);
+    } catch (error) {
+      console.error('Error processing screenshot:', error);
+      statusMessage.textContent = `Error: ${error.message}`;
+    } finally {
+      // Re-enable buttons, reset processing flag, and notify background script
+      captureButton.disabled = false;
+      uploadButton.disabled = false;
+      isProcessing = false;
+      
+      // Notify background script that processing is complete
+      chrome.runtime.sendMessage({action: "processingComplete"});
     }
   }
 
   async function loadAndRunModel(imageFile) {
     // Update progress
-    progressBar.style.width = '20%';
+    progressBar.style.width = '30%';
     statusMessage.textContent = 'Loading ONNX runtime...';
     
     try {
@@ -146,7 +261,13 @@ document.addEventListener('DOMContentLoaded', function() {
         reject(new Error('Failed to load image'));
       };
       
-      img.src = URL.createObjectURL(imageFile);
+      if (imageFile instanceof File || imageFile instanceof Blob) {
+        img.src = URL.createObjectURL(imageFile);
+      } else if (typeof imageFile === 'string' && imageFile.startsWith('data:')) {
+        img.src = imageFile; // Handle data URLs directly
+      } else {
+        reject(new Error('Invalid image format'));
+      }
     });
   }
 

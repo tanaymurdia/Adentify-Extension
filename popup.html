@@ -5,6 +5,7 @@
   <title>Basketball Image Classifier</title>
   <style>
     body {
+      box-sizing: border-box; /* Fix: Use border-box to include padding in width */
       width: 350px;
       min-height: 300px;
       padding: 10px;
@@ -68,6 +69,7 @@
       padding: 8px 16px;
       border-radius: 4px;
       cursor: pointer;
+      margin: 0 5px;
     }
     button:hover {
       background-color: #3367d6;
@@ -76,14 +78,39 @@
       background-color: #cccccc;
       cursor: not-allowed;
     }
+    .button-container {
+      display: flex;
+      justify-content: center;
+      margin: 15px 0;
+    }
+    .divider {
+      text-align: center;
+      margin: 15px 0;
+      position: relative;
+    }
+    .divider::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 0;
+      right: 0;
+      border-top: 1px solid #ddd;
+      z-index: -1;
+    }
+    .divider span {
+      background-color: white;
+      padding: 0 10px;
+      color: #666;
+    }
   </style>
 </head>
 <body>
   <h1>Basketball Image Classifier</h1>
   
-  <div class="upload-container">
+  <div class="button-container">
     <input type="file" id="imageUpload" accept="image/*" style="display: none;">
     <button id="uploadButton">Upload Image</button>
+    <button id="captureButton">Capture Tab</button>
   </div>
   
   <img id="imagePreview" alt="Preview">
