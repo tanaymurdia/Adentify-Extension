@@ -2,7 +2,9 @@
 document.addEventListener('DOMContentLoaded', function() {
   // Elements
   const uploadButton = document.getElementById('uploadButton');
-  const captureButton = document.getElementById('captureButton');
+  const singleCaptureButton = document.getElementById('singleCaptureButton');
+  const startCaptureButton = document.getElementById('startCaptureButton');
+  const stopCaptureButton = document.getElementById('stopCaptureButton');
   const imageUpload = document.getElementById('imageUpload');
   const imagePreview = document.getElementById('imagePreview');
   const resultContainer = document.getElementById('resultContainer');
@@ -10,35 +12,71 @@ document.addEventListener('DOMContentLoaded', function() {
   const confidenceText = document.getElementById('confidenceText');
   const statusMessage = document.getElementById('statusMessage');
   const progressBar = document.getElementById('progressBar');
+  const fpsCounter = document.getElementById('fpsCounter');
+  const fpsValue = document.getElementById('fpsValue');
 
   // State flags
   let isProcessing = false;
   let ort = null;
+  let isContinuousCapture = false;
+  let lastResultTime = 0;
+  
+  // Performance tracking
+  let frameCount = 0;
+  let lastFpsUpdateTime = 0;
+  let fpsUpdateInterval = 1000; // Update FPS every second
 
-  // Check if there's a capture in progress when popup opens
-  chrome.runtime.sendMessage({action: "checkCapturing"}, function(response) {
-    if (response && response.isCapturing) {
-      captureButton.disabled = true;
-      uploadButton.disabled = true;
-      statusMessage.textContent = 'Capture in progress...';
-      progressBar.style.width = '10%';
-      isProcessing = true;
+  // Notify background script that popup is open
+  chrome.runtime.sendMessage({action: "popupOpened"}, function(response) {
+    console.log("Popup opened, got state from background:", response);
+    if (response) {
+      if (response.isCapturing) {
+        disableButtons();
+        statusMessage.textContent = 'Capture in progress...';
+        progressBar.style.width = '10%';
+        isProcessing = true;
+      }
+      
+      if (response.isContinuous) {
+        isContinuousCapture = true;
+        updateCaptureUI(true);
+        
+        // Show FPS counter if continuous capture is active
+        frameCount = 0;
+        lastFpsUpdateTime = Date.now();
+        fpsValue.textContent = '0';
+        fpsCounter.classList.remove('hidden');
+      }
+      
+      // If there's a last result from background processing, display it
+      if (response.lastResult) {
+        displayBackgroundResult(response.lastResult);
+      }
     }
+  });
+
+  // Register close event to notify background when popup closes
+  window.addEventListener('unload', function() {
+    chrome.runtime.sendMessage({action: "popupClosed"});
   });
 
   // Listen for messages from background script
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log("Popup received message:", message.action);
+    
     if (message.action === "screenshotCaptured") {
       // Process the captured screenshot
-      handleCapturedImage(message.imageUrl);
+      handleCapturedImage(message.imageUrl, message.isContinuous);
       return true;
     } else if (message.action === "captureError") {
       // Handle capture error
-      captureButton.disabled = false;
-      uploadButton.disabled = false;
+      resetUI();
       statusMessage.textContent = `Capture error: ${message.error}`;
-      progressBar.style.width = '0%';
-      isProcessing = false;
+      return true;
+    } else if (message.action === "captureStatusChanged") {
+      // Update UI when capture status changes
+      isContinuousCapture = message.isContinuous;
+      updateCaptureUI(isContinuousCapture);
       return true;
     }
   });
@@ -52,16 +90,14 @@ document.addEventListener('DOMContentLoaded', function() {
     imageUpload.click();
   });
 
-  captureButton.addEventListener('click', () => {
-    if (isProcessing) {
-      statusMessage.textContent = 'Please wait for current processing to complete';
+  singleCaptureButton.addEventListener('click', () => {
+    if (isProcessing || isContinuousCapture) {
+      statusMessage.textContent = 'Please wait for current processing to complete or stop continuous capture';
       return;
     }
     
     // Disable buttons and update UI
-    captureButton.disabled = true;
-    uploadButton.disabled = true;
-    isProcessing = true;
+    disableButtons();
     
     statusMessage.textContent = 'Capturing tab...';
     progressBar.style.width = '10%';
@@ -71,15 +107,55 @@ document.addEventListener('DOMContentLoaded', function() {
     resultContainer.className = '';
     
     // Request the background script to capture the tab
-    chrome.runtime.sendMessage({action: "captureTab"}, (response) => {
+    chrome.runtime.sendMessage({action: "singleCapture"}, (response) => {
       if (response && !response.success) {
+        resetUI();
         statusMessage.textContent = `Capture failed: ${response.error || 'Unknown error'}`;
-        captureButton.disabled = false;
-        uploadButton.disabled = false;
-        progressBar.style.width = '0%';
-        isProcessing = false;
       }
     });
+  });
+
+  startCaptureButton.addEventListener('click', () => {
+    if (isProcessing) {
+      statusMessage.textContent = 'Please wait for current processing to complete';
+      return;
+    }
+    
+    // Reset FPS counter
+    frameCount = 0;
+    lastFpsUpdateTime = Date.now();
+    fpsValue.textContent = '0';
+    fpsCounter.classList.remove('hidden');
+    
+    // Update UI for continuous capture
+    isContinuousCapture = true;
+    updateCaptureUI(true);
+    
+    statusMessage.textContent = 'Starting continuous capture...';
+    progressBar.style.width = '10%';
+    
+    // Request the background script to start continuous capture
+    chrome.runtime.sendMessage({action: "startCapture"}, (response) => {
+      if (response && !response.success) {
+        resetUI();
+        statusMessage.textContent = `Continuous capture failed: ${response.error || 'Unknown error'}`;
+      }
+    });
+  });
+
+  stopCaptureButton.addEventListener('click', () => {
+    // Request the background script to stop continuous capture
+    chrome.runtime.sendMessage({action: "stopCapture"});
+    
+    // Update UI immediately while waiting for background to confirm
+    isContinuousCapture = false;
+    updateCaptureUI(false);
+    statusMessage.textContent = 'Stopping capture...';
+    
+    // Hide FPS counter after a short delay
+    setTimeout(() => {
+      fpsCounter.classList.add('hidden');
+    }, 2000);
   });
 
   imageUpload.addEventListener('change', handleImageUpload);
@@ -97,8 +173,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Set processing flag and disable buttons
     isProcessing = true;
-    captureButton.disabled = true;
-    uploadButton.disabled = true;
+    disableButtons();
     
     // Display preview
     imagePreview.src = URL.createObjectURL(file);
@@ -118,14 +193,17 @@ document.addEventListener('DOMContentLoaded', function() {
       statusMessage.textContent = `Error: ${error.message}`;
     } finally {
       // Re-enable buttons and reset processing flag
-      captureButton.disabled = false;
-      uploadButton.disabled = false;
-      isProcessing = false;
+      resetUI();
     }
   }
 
   // Process a captured screenshot
-  async function handleCapturedImage(imageUrl) {
+  async function handleCapturedImage(imageUrl, isContinuous) {
+    // Update FPS counter if this is continuous capture
+    if (isContinuous) {
+      updateFpsCounter();
+    }
+    
     // Display preview
     imagePreview.src = imageUrl;
     imagePreview.style.display = 'block';
@@ -144,18 +222,53 @@ document.addEventListener('DOMContentLoaded', function() {
       const file = new File([blob], "screenshot.png", { type: "image/png" });
       
       // Load and run the model
-      await loadAndRunModel(file);
+      const result = await loadAndRunModel(file);
+      
+      // Store the result time
+      lastResultTime = Date.now();
+      
+      // Send the result back to the background script
+      if (result) {
+        chrome.runtime.sendMessage({
+          action: "processingComplete",
+          result: {
+            isBasketball: result.isBasketball,
+            confidence: result.confidence
+          }
+        }).catch(err => {
+          console.log("Could not send processing complete message:", err);
+          // If we can't communicate with background, reset UI
+          resetUI();
+        });
+      } else {
+        // If no result, just signal completion
+        chrome.runtime.sendMessage({action: "processingComplete"}).catch(err => {
+          console.log("Could not send processing complete message:", err);
+          // If we can't communicate with background, reset UI
+          resetUI();
+        });
+      }
     } catch (error) {
       console.error('Error processing screenshot:', error);
       statusMessage.textContent = `Error: ${error.message}`;
-    } finally {
-      // Re-enable buttons, reset processing flag, and notify background script
-      captureButton.disabled = false;
-      uploadButton.disabled = false;
-      isProcessing = false;
       
-      // Notify background script that processing is complete
-      chrome.runtime.sendMessage({action: "processingComplete"});
+      // If an error occurred during continuous capture, stop it
+      if (isContinuous) {
+        chrome.runtime.sendMessage({action: "stopCapture"});
+        isContinuousCapture = false;
+        updateCaptureUI(false);
+      }
+      
+      // Signal that processing is complete despite the error
+      chrome.runtime.sendMessage({action: "processingComplete"}).catch(err => {
+        console.log("Could not send processing complete message:", err);
+        resetUI();
+      });
+    } finally {
+      // If not in continuous capture, reset UI
+      if (!isContinuous) {
+        resetUI();
+      }
     }
   }
 
@@ -203,7 +316,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
       // Update progress and display result
       progressBar.style.width = '100%';
-      displayResults(prediction);
+      
+      // Prepare result object
+      const resultObject = {
+        isBasketball: prediction > 0.5,
+        confidence: prediction > 0.5 ? prediction : 1 - prediction
+      };
+      
+      // Display the results
+      displayResults(resultObject);
+      
+      // Return the result for passing back to background script
+      return resultObject;
     } catch (error) {
       console.error('Error in model processing:', error);
       statusMessage.textContent = `Error: ${error.message}`;
@@ -271,10 +395,10 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  function displayResults(prediction) {
-    // Display the results
-    const isBasketball = prediction > 0.5;
-    const confidence = isBasketball ? prediction : 1 - prediction;
+  // Display results from model inference
+  function displayResults(result) {
+    const isBasketball = result.isBasketball;
+    const confidence = result.confidence;
     const percentConfidence = (confidence * 100).toFixed(2);
     
     resultContainer.style.display = 'block';
@@ -288,6 +412,78 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     confidenceText.textContent = `Confidence: ${percentConfidence}%`;
-    statusMessage.textContent = 'Analysis complete';
+    
+    // Only update status message if not in continuous mode
+    if (!isContinuousCapture) {
+      statusMessage.textContent = 'Analysis complete';
+    }
+  }
+  
+  // Display result received from background processing
+  function displayBackgroundResult(result) {
+    console.log("Displaying background result:", result);
+    
+    // Show the result container
+    resultContainer.style.display = 'block';
+    
+    // Determine classification and format confidence
+    const isBasketball = result.isBasketball;
+    const percentConfidence = (result.confidence * 100).toFixed(2);
+    
+    // Update UI
+    if (isBasketball) {
+      resultContainer.className = 'basketball';
+      resultText.textContent = 'Basketball detected!';
+    } else {
+      resultContainer.className = 'not-basketball';
+      resultText.textContent = 'Not a basketball image';
+    }
+    
+    confidenceText.textContent = `Confidence: ${percentConfidence}%`;
+    
+    // Add a note that this was processed in background
+    statusMessage.textContent = 'Last result from background processing';
+  }
+  
+  // Helper functions
+  function updateCaptureUI(isCapturing) {
+    if (isCapturing) {
+      startCaptureButton.classList.add('hidden');
+      stopCaptureButton.classList.remove('hidden');
+      singleCaptureButton.disabled = true;
+      uploadButton.disabled = true;
+    } else {
+      startCaptureButton.classList.remove('hidden');
+      stopCaptureButton.classList.add('hidden');
+      singleCaptureButton.disabled = false;
+      uploadButton.disabled = false;
+    }
+  }
+  
+  function disableButtons() {
+    singleCaptureButton.disabled = true;
+    uploadButton.disabled = true;
+    startCaptureButton.disabled = true;
+    isProcessing = true;
+  }
+  
+  function resetUI() {
+    singleCaptureButton.disabled = false;
+    uploadButton.disabled = false;
+    startCaptureButton.disabled = false;
+    isProcessing = false;
+  }
+  
+  function updateFpsCounter() {
+    frameCount++;
+    const now = Date.now();
+    const elapsed = now - lastFpsUpdateTime;
+    
+    if (elapsed >= fpsUpdateInterval) {
+      const fps = Math.round((frameCount * 1000) / elapsed);
+      fpsValue.textContent = fps.toString();
+      frameCount = 0;
+      lastFpsUpdateTime = now;
+    }
   }
 }); 
