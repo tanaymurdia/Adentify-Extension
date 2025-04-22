@@ -1,8 +1,10 @@
-#screenity-replica-ui {
+#adentify-ui {
   /* Basic styles for the container, if needed */
+  position: fixed;
 }
 
-#screenity-replica-ui > div {
+#adentify-ui > div {
   /* Styles for the placeholder or other UI elements */
   font-family: sans-serif;
+  background-color: rgba(0, 0, 0, 0.7);
 } 

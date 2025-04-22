@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Screen Recorder Replica",
+  "name": "Adentify",
   "version": "0.1.0",
-  "description": "Replicates Screenity's screen capture with overlay.",
+  "description": "Screen capture with overlay.",
   "permissions": [
     "activeTab",
     "scripting",

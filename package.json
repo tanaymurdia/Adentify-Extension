@@ -1,7 +1,8 @@
 {
-  "name": "screen-recorder-replica",
-  "version": "0.1.0",
-  "description": "Replicates Screenity's screen capture with overlay.",
+  "name": "adentify",
+  "version": "1.0.0",
+  "description": "Screen capture with overlay.",
+  "main": "background.js",
   "scripts": {
     "build": "webpack --mode=production",
     "dev": "webpack --mode=development --watch"

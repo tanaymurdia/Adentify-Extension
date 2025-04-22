@@ -20,7 +20,7 @@ let lastFrameTime = 0;
 const FRAME_RATE_LIMIT = 15; // Target FPS for preview (limit requests)
 
 // --- Setup UI Container ---
-uiContainer.id = 'screenity-replica-ui';
+uiContainer.id = 'adentify-ui';
 uiContainer.style.position = 'fixed';
 uiContainer.style.bottom = '20px'; // Position toolbar/preview area
 uiContainer.style.right = '20px';
@@ -35,7 +35,7 @@ uiContainer.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.3)';
 document.body.appendChild(uiContainer);
 
 // --- Setup Toolbar ---
-toolbar.id = 'screenity-replica-toolbar';
+toolbar.id = 'adentify-toolbar';
 toolbar.style.display = 'flex';
 toolbar.style.gap = '10px';
 toolbar.style.alignItems = 'center';
@@ -43,11 +43,11 @@ toolbar.style.pointerEvents = 'auto'; // Toolbar elements are interactive
 uiContainer.appendChild(toolbar);
 
 // --- Setup Preview Area ---
-previewContainer.id = 'screenity-replica-preview';
+previewContainer.id = 'adentify-preview';
 previewContainer.style.marginTop = '10px';
 previewContainer.style.display = 'none'; // Hidden until recording starts
 previewContainer.style.pointerEvents = 'none'; // Preview itself is not interactive
-previewCanvas.id = 'screenity-replica-preview-canvas';
+previewCanvas.id = 'adentify-preview-canvas';
 previewCanvas.width = 320; // Example preview size
 previewCanvas.height = 180;
 previewCanvas.style.border = '1px solid #666';
@@ -56,8 +56,8 @@ previewContainer.appendChild(previewCanvas);
 uiContainer.appendChild(previewContainer);
 
 // --- NEW: Setup Restriction Message Div ---
-restrictedMessageDiv.id = 'screenity-replica-restricted-msg';
-restrictedMessageDiv.textContent = 'Screen recording is not available on this page.';
+restrictedMessageDiv.id = 'adentify-restricted-msg';
+restrictedMessageDiv.textContent = 'Adentify cannot run on this page.';
 restrictedMessageDiv.style.padding = '10px';
 restrictedMessageDiv.style.textAlign = 'center';
 restrictedMessageDiv.style.fontStyle = 'italic';
@@ -128,7 +128,7 @@ stopCaptureButton.addEventListener('click', () => {
 toolbar.appendChild(stopCaptureButton);
 
 // Status Message Area
-statusMessage.id = 'screenity-replica-status';
+statusMessage.id = 'adentify-status';
 statusMessage.style.marginLeft = '10px';
 statusMessage.style.fontStyle = 'italic';
 toolbar.appendChild(statusMessage);
@@ -271,14 +271,13 @@ console.log("Content script: Message listener ADDED.");
 // --- Optional: Inject CSS --- (remains the same)
 const style = document.createElement('style');
 style.textContent = `
-  #screenity-replica-toolbar button:hover,
-  #screenity-replica-toolbar select:hover {
-    background: #777;
+  #adentify-toolbar button:hover,
+  #adentify-toolbar select:hover {
+    background-color: #444;
   }
-   #screenity-replica-toolbar button:disabled,
-   #screenity-replica-toolbar select:disabled {
-    background: #444;
-    color: #888;
+   #adentify-toolbar button:disabled,
+   #adentify-toolbar select:disabled {
+    opacity: 0.5;
     cursor: not-allowed;
    }
 `;
