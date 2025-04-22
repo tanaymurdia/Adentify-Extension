@@ -15,19 +15,38 @@
   z-index: 2147483647;
   /* min-width: 220px; */ /* REMOVED to avoid potential box model issues */
   /* min-height: 120px; */ /* REMOVED to avoid potential box model issues */
-  padding: 25px; /* Padding to keep content away from corner buttons */
+  padding: 5px 10px; /* Restore initial padding */ /* stylelint-disable-line */
   background-color: #1a1f2c; /* Dark blueish background */
   border-radius: 12px;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); /* Subtle shadow */
   color: #e0e0e0; /* Light text */
   font-family: sans-serif;
-  overflow: hidden; /* Ensure corner elements stay within bounds */
-
+  overflow: hidden; /* Crucial for max-height transition */
+  width: 150px; /* Fixed initial width */ /* stylelint-disable-line property-disallowed-list */
   /* Flex settings for centering initial content */
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
+
+  /* Transition properties */
+  height: 70px; /* Fixed initial height */ /* stylelint-disable-line property-disallowed-list */
+  transition: height 0.35s ease-in-out, padding 0.35s ease-in-out, width 0.35s ease-in-out; /* Transition height, padding, width */
+}
+
+/* Expand container and adjust layout when recording */
+#adentify-ui.recording-active {
+  height: 230px; /* Fixed active height */ /* stylelint-disable-line property-disallowed-list */
+  padding: 25px; /* Restore larger padding for expanded view */ /* stylelint-disable-line */
+  justify-content: flex-start; /* Align content to top */
+  align-items: center; /* Center items horizontally */
+  width: 400px; /* Fixed active width */ /* stylelint-disable-line property-disallowed-list */
+}
+
+/* State for Recording ACTIVE but Preview HIDDEN */
+#adentify-ui.recording-active.preview-hidden {
+  height: 70px; /* Shrink height to initial value */ /* stylelint-disable-line property-disallowed-list */
+  /* Width and padding remain as per .recording-active */
 }
 
 /* --- Corner Buttons --- */
@@ -76,6 +95,10 @@
   transition: all 0.15s ease-in-out;
   box-shadow: none; /* No initial accent */
 }
+#start-capture-btn {
+  margin: 10px 10px;
+  position: fixed;
+}
 
 #start-capture-btn:hover,
 #stop-capture-btn:hover {
@@ -106,14 +129,37 @@
 }
 
 /* --- Recording State Elements --- */
+/* Add transitions and initial hidden state for animated elements */
+#adentify-preview,
+#adentify-recording-controls { /* Let toggle button visibility be controlled ONLY by parent */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.25s ease-in-out, visibility 0s linear 0.25s; /* Define fade-out transition, hide after fade */
+  /* Keep existing layout styles where appropriate */
+}
+
+/* Make recording elements visible when active */
+#adentify-ui.recording-active > #adentify-preview,
+#adentify-ui.recording-active > #adentify-recording-controls { /* Target only direct children here */
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.25s ease-in-out, visibility 0s linear 0s; /* Fade in immediately */
+}
+
+/* Specific Styles (ensure they don't conflict) */
 #adentify-preview {
-  /* width: 100%; */ /* REMOVED - Let content determine width */
-  /* Height will be determined by canvas aspect ratio */
-  margin-bottom: 10px; /* Space below preview */
+  /* order: 0; */ /* REMOVED */
+  margin-bottom: 8px; /* Space below preview when visible */
+  /* width: 100%; */ /* REMOVED - Let flex context stretch */
+  transition: max-height 0.35s ease-in-out, opacity 0.25s ease-in-out, margin-bottom 0.35s ease-in-out, visibility 0s linear 0.35s; /* Add transitions for hiding */
+  overflow: hidden; /* Needed for max-height transition */
+  max-height: 150px; /* Set an explicit max-height for transition start point (adjust if needed) */
 }
 
 /* NEW rule for the canvas wrapper */
 #adentify-canvas-wrapper {
+  display: flex;
+  justify-content: center;
   border-radius: 4px;
   border: 1px solid #38444d; /* Match button border */
   /* Ensure wrapper doesn't add extra space */
@@ -138,43 +184,42 @@
 /* --- Preview Toggle Button --- */
 #adentify-preview-toggle-btn {
   /* NEW Styles - Less prominent button */
-  background-color: #2a313f; /* Darker than Stop button base */
-  color: #a0b0c0; /* Muted text */
-  border: 1px solid #404a50; /* Subtle border */
-  padding: 6px 12px; /* MATCH Stop button */
-  border-radius: 16px; /* MATCH Stop button */
-  font-size: 12px; /* MATCH Stop button */
+  background-color: #2a313f;
+  color: #a0b0c0;
+  border: 1px solid #404a50;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 12px;
   font-weight: normal;
   cursor: pointer;
-  transition: all 0.15s ease-in-out;
+  /* transition: all 0.15s ease-in-out; */ /* Base transition handled above */
   flex-shrink: 0; /* Don't shrink */
+  align-self: center; /* Re-center toggle button */
+  margin-top: 4px; /* Adjust spacing */
+  margin-bottom: 4px;
 }
-
 #adentify-preview-toggle-btn:hover {
-  background-color: #38444d; /* Match Stop button base on hover */
+  background-color: #38444d;
   color: #e0e0e0;
   border-color: #4a5861;
 }
 
 #adentify-recording-controls {
-  /* Re-order this to appear after toggle button */
   /* order: 2; */ /* REMOVED */
   display: flex;
-  /* justify-content: space-between; */
-  justify-content: flex-start; /* Align items to start */
+  justify-content: space-between; /* Space out prediction and buttons */
   align-items: center;
-  /* width: 100%; */ /* REMOVED - Let flex items determine width */
   padding: 0 5px; /* Small padding for alignment */
   align-self: stretch; /* Ensure it stretches to container width if needed */
-  /* margin-top: 5px; */ /* REMOVED */
   gap: 8px; /* Use gap for spacing */
+  /* width: 100%; */ /* REMOVED - Let align-self stretch handle it */
 }
 
 #adentify-prediction {
   font-size: 13px; /* INCREASED font size */
   font-weight: normal;
   color: #a0b0c0; /* Muted text color - Default for 'No Basketball' */
-  margin-right: auto; /* Pushes toggle/stop buttons right */
+  /* margin-right: auto; */ /* REMOVED - Use justify-content on parent */
   /* flex-grow: 1; */ /* REMOVED - Use margin auto */
   text-align: left;
   transition: color 0.2s ease; /* Smooth color change */
@@ -209,16 +254,22 @@
   padding: 20px;
 }
 
-/* Reposition preview container within flex */
-#adentify-preview {
-  /* order: 0; */ /* REMOVED */
-  /* width: 100%; */ /* REMOVED - Let content determine width */
-  /* Height will be determined by canvas aspect ratio */
-  margin-bottom: 8px; /* Add space below preview again */
-}
-
 /* Adjust main container flex for recording state */
 /* #adentify-ui.recording-active { */ /* REMOVE THIS RULE */
   /* justify-content: flex-start; */
   /* align-items: stretch; */
 /* } */ 
+
+/* Hide Preview when .preview-hidden is active on parent */
+#adentify-ui.preview-hidden #adentify-preview {
+  max-height: 0;
+  opacity: 0;
+  visibility: hidden;
+  margin-bottom: 0; /* Remove margin when hidden */
+  transition: max-height 0.35s ease-in-out, opacity 0.25s ease-in-out 0.1s, margin-bottom 0.35s ease-in-out, visibility 0s linear 0.35s; /* Add delay back to fade out */
+}
+
+/* Adjust controls margin ONLY when preview is hidden during active recording */
+#adentify-ui.recording-active.preview-hidden #adentify-recording-controls {
+  margin: -8px 0 10px;
+} 

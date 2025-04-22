@@ -104,9 +104,9 @@ if (window.adentifyScriptInjected) {
   previewToggleButton.textContent = 'Hide Preview'; // Initial state
   previewToggleButton.removeAttribute('style'); // Rely on CSS
   previewToggleButton.addEventListener('click', () => {
-      isPreviewVisible = !isPreviewVisible;
-      previewContainer.classList.toggle('hidden', !isPreviewVisible);
-      previewToggleButton.textContent = isPreviewVisible ? 'Hide Preview' : 'Show Preview';
+      // Toggle the class on the main container instead
+      uiContainer.classList.toggle('preview-hidden');
+      previewToggleButton.textContent = uiContainer.classList.contains('preview-hidden') ? 'Show Preview' : 'Hide Preview';
   });
   recordingControls.appendChild(previewToggleButton); // Add to controls div
 
@@ -138,44 +138,38 @@ if (window.adentifyScriptInjected) {
       isCaptureActive = isActive;
       console.log(`Updating UI - Capture Active: ${isCaptureActive}, Error: ${error}`);
 
+      // Toggle class on main container for CSS-driven animations/styles
       uiContainer.classList.toggle('recording-active', isActive);
 
+      // Handle preview state based on capture state
+      if (isActive) {
+        uiContainer.classList.add('preview-hidden'); // Default to hidden when starting
+        previewToggleButton.textContent = 'Show Preview';
+      } else {
+        uiContainer.classList.remove('preview-hidden'); // Ensure reset when stopped
+        previewToggleButton.textContent = 'Hide Preview';
+      }
+
+      // Only toggle .hidden for the Start button
       startCaptureButton.classList.toggle('hidden', isActive);
       startCaptureButton.disabled = false; // Re-enable unless starting
 
-      // Show/hide recording specific elements
-      recordingControls.classList.toggle('hidden', !isActive);
-      previewToggleButton.classList.toggle('hidden', !isActive);
+      // Show/hide recording specific elements - REMOVED .hidden toggles here
+      // recordingControls.classList.toggle('hidden', !isActive);
+      // previewToggleButton.classList.toggle('hidden', !isActive);
       stopCaptureButton.disabled = false; // Re-enable unless stopping
-
-      // Handle preview visibility based on its state *only if active*
-      if (isActive) {
-          previewContainer.classList.toggle('hidden', !isPreviewVisible);
-          previewToggleButton.textContent = isPreviewVisible ? 'Hide Preview' : 'Show Preview';
-      } else {
-          previewContainer.classList.add('hidden'); // Ensure preview is hidden when not active
-      }
-
-      if (!isActive) {
-          predictionDisplay.textContent = 'No Basketball'; // Reset text on stop
-          predictionDisplay.classList.remove('prediction-basketball'); // Ensure accent class is removed
-          isPreviewVisible = true; // Reset preview state for next time
-          // Clear preview canvas
-          previewCtx.fillStyle = '#1a1f2c'; // Match new background
-          previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
-      }
 
       // Update status message visibility and content
       if (isActive) {
-          statusMessage.classList.add('hidden'); // Hide during active recording
+          statusMessage.classList.add('hidden');
       } else if (error) {
           statusMessage.textContent = `Error: ${error}`;
-          statusMessage.style.color = '#FFB74D'; // Use warning color for errors
-          statusMessage.classList.remove('hidden'); // Show errors
+          statusMessage.style.color = '#FFB74D';
+          statusMessage.classList.remove('hidden');
       } else {
-          statusMessage.textContent = ''; // Clear status when idle
-          statusMessage.classList.add('hidden'); // Hide when idle and no error
-          statusMessage.style.color = ''; // Reset color
+          statusMessage.textContent = '';
+          statusMessage.classList.add('hidden');
+          statusMessage.style.color = '';
       }
   }
 
@@ -184,27 +178,27 @@ if (window.adentifyScriptInjected) {
       const shouldShow = forceShow !== undefined ? forceShow : uiContainer.classList.contains('hidden');
       console.log(`toggleOverlay called. Current hidden: ${uiContainer.classList.contains('hidden')}, shouldShow: ${shouldShow}`);
 
+      // We still use .hidden for the *overall* UI container visibility
       if (shouldShow) {
           uiContainer.classList.remove('hidden');
-          console.log(`Overlay should be visible.`);
           if (isPageRestricted) {
-              console.log(`Page is restricted. Showing message.`);
+              // ... (hiding elements including preview, toggle, controls)
               startCaptureButton.classList.add('hidden');
+              // Ensure animated elements are hidden immediately on restricted pages
               previewContainer.classList.add('hidden');
+              previewToggleButton.classList.add('hidden');
               recordingControls.classList.add('hidden');
               closeButton.classList.add('hidden');
               dragHandle.classList.add('hidden');
               restrictedMessageDiv.classList.remove('hidden');
-              previewToggleButton.classList.add('hidden');
           } else {
-              console.log(`Page not restricted. Updating UI state.`);
               restrictedMessageDiv.classList.add('hidden');
               closeButton.classList.remove('hidden');
               dragHandle.classList.remove('hidden');
+              // updateUI will handle toggling .recording-active and start button .hidden
               updateUIForCaptureState(isCaptureActive);
           }
       } else {
-          console.log(`Overlay should be hidden.`);
           uiContainer.classList.add('hidden');
       }
   }
@@ -249,6 +243,8 @@ if (window.adentifyScriptInjected) {
           break;
       case 'capture-state-active':
           console.log("Message received: capture-state-active");
+          // Force setting the initial text BEFORE updating the rest of the UI state
+          previewToggleButton.textContent = 'Show Preview';
           updateUIForCaptureState(true);
           toggleOverlay(true);
           break;
@@ -302,27 +298,25 @@ if (window.adentifyScriptInjected) {
   // Set initial state, position & hidden class
   uiContainer.classList.add('hidden');
   const initialPadding = 20;
-  let initialLeft = window.innerWidth - 250 - initialPadding;
-  let initialTop = window.innerHeight - 150 - initialPadding;
-  if (initialLeft < 0) initialLeft = initialPadding;
-  if (initialTop < 0) initialTop = initialPadding;
-  xOffset = initialLeft;
-  yOffset = initialTop;
-  setTranslate(initialLeft, initialTop, uiContainer);
+  // Set initial position to top-left with padding
+  xOffset = initialPadding;
+  yOffset = initialPadding;
+  setTranslate(xOffset, yOffset, uiContainer); // Use xOffset, yOffset directly
 
   // Set initial element visibility based on page restriction
   if (isPageRestricted) {
+      // ... (hiding corner buttons)
       startCaptureButton.classList.add('hidden');
+      // Also hide the other elements that are normally hidden initially
       previewContainer.classList.add('hidden');
-      recordingControls.classList.add('hidden');
-      closeButton.classList.add('hidden');
-      dragHandle.classList.add('hidden');
-      restrictedMessageDiv.classList.add('hidden');
       previewToggleButton.classList.add('hidden');
+      recordingControls.classList.add('hidden');
+      restrictedMessageDiv.classList.add('hidden'); // Start hidden, toggleOverlay will show it
   } else {
       restrictedMessageDiv.classList.add('hidden');
-      previewToggleButton.classList.add('hidden');
-      updateUIForCaptureState(false);
+      // previewToggleButton.classList.add('hidden'); // REMOVED - CSS handles initial hide
+      // Ensure elements start hidden via CSS opacity/visibility
+      updateUIForCaptureState(false); // Start with Start button visible
   }
 
   console.log("Content script initial setup complete.");

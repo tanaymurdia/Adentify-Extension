@@ -18,8 +18,8 @@ async function loadModel() {
         
         // ---> Force basic non-threaded, non-SIMD WASM backend <--- 
         ort.env.wasm.numThreads = 1;
-        ort.env.wasm.simd = false; // Explicitly disable SIMD
-        console.log("ONNX Worker: Forcing single-threaded, non-SIMD WASM backend.");
+        // ort.env.wasm.simd = false; // REMOVED - Deprecated and ignored
+        console.log("ONNX Worker: Forcing single-threaded WASM backend."); // Updated log message
         
         console.log(`ONNX Worker: Attempting to load model from: ${modelPath}`);
         ortSession = await ort.InferenceSession.create(modelPath, {
