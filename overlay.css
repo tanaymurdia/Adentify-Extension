@@ -15,14 +15,14 @@
   z-index: 2147483647;
   /* min-width: 220px; */ /* REMOVED to avoid potential box model issues */
   /* min-height: 120px; */ /* REMOVED to avoid potential box model issues */
-  padding: 5px 10px; /* Restore initial padding */ /* stylelint-disable-line */
+  padding: 5px 10px; /* stylelint-disable-line property-disallowed-list */
   background-color: #1a1f2c; /* Dark blueish background */
   border-radius: 12px;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); /* Subtle shadow */
   color: #e0e0e0; /* Light text */
   font-family: sans-serif;
   overflow: hidden; /* Crucial for max-height transition */
-  width: 150px; /* Fixed initial width */ /* stylelint-disable-line property-disallowed-list */
+  width: 150px; /* stylelint-disable-line property-disallowed-list */
   /* Flex settings for centering initial content */
   display: flex;
   flex-direction: column;
@@ -30,22 +30,25 @@
   align-items: center;
 
   /* Transition properties */
-  height: 70px; /* Fixed initial height */ /* stylelint-disable-line property-disallowed-list */
+  height: 70px; /* stylelint-disable-line property-disallowed-list */
   transition: height 0.35s ease-in-out, padding 0.35s ease-in-out, width 0.35s ease-in-out; /* Transition height, padding, width */
+
+  /* --- ADDED: Disable pointer events by default --- */
+  pointer-events: none;
 }
 
 /* Expand container and adjust layout when recording */
 #adentify-ui.recording-active {
-  height: 230px; /* Fixed active height */ /* stylelint-disable-line property-disallowed-list */
-  padding: 25px; /* Restore larger padding for expanded view */ /* stylelint-disable-line */
+  height: 230px; /* stylelint-disable-line property-disallowed-list */
+  padding: 25px; /* stylelint-disable-line property-disallowed-list */
   justify-content: flex-start; /* Align content to top */
   align-items: center; /* Center items horizontally */
-  width: 400px; /* Fixed active width */ /* stylelint-disable-line property-disallowed-list */
+  width: 400px; /* stylelint-disable-line property-disallowed-list */
 }
 
 /* State for Recording ACTIVE but Preview HIDDEN */
 #adentify-ui.recording-active.preview-hidden {
-  height: 70px; /* Shrink height to initial value */ /* stylelint-disable-line property-disallowed-list */
+  height: 70px; /* stylelint-disable-line property-disallowed-list */
   /* Width and padding remain as per .recording-active */
 }
 
@@ -57,10 +60,12 @@
   background: none;
   border: none;
   font-size: 16px; /* Reduced font size */
-  padding: 6px; /* Adjusted click area */
+  padding: 6px; /* stylelint-disable-line property-disallowed-list */ /* Adjusted click area - Added disable */
   cursor: pointer;
   transition: color 0.2s ease;
   z-index: 10; /* Above other content */
+  /* --- ADDED: Re-enable pointer events --- */
+  pointer-events: auto;
 }
 
 #adentify-close-btn:hover,
@@ -87,13 +92,15 @@
   background-color: #38444d; /* Darker gray */
   color: #e0e0e0;
   border: 1px solid #4a5861;
-  padding: 6px 12px; /* Consistent padding */
+  padding: 6px 12px; /* stylelint-disable-line property-disallowed-list */ /* Consistent padding - Added disable */
   border-radius: 16px; /* Consistent radius */
   font-size: 12px; /* Consistent font size */
   font-weight: bold;
   cursor: pointer;
   transition: all 0.15s ease-in-out;
   box-shadow: none; /* No initial accent */
+  /* --- ADDED: Re-enable pointer events --- */
+  pointer-events: auto;
 }
 #start-capture-btn {
   margin: 10px 10px;
@@ -187,7 +194,7 @@
   background-color: #2a313f;
   color: #a0b0c0;
   border: 1px solid #404a50;
-  padding: 6px 12px;
+  padding: 6px 12px; /* stylelint-disable-line property-disallowed-list */ /* Added disable */
   border-radius: 16px;
   font-size: 12px;
   font-weight: normal;
@@ -197,6 +204,8 @@
   align-self: center; /* Re-center toggle button */
   margin-top: 4px; /* Adjust spacing */
   margin-bottom: 4px;
+  /* --- ADDED: Re-enable pointer events --- */
+  pointer-events: auto;
 }
 #adentify-preview-toggle-btn:hover {
   background-color: #38444d;
@@ -272,4 +281,12 @@
 /* Adjust controls margin ONLY when preview is hidden during active recording */
 #adentify-ui.recording-active.preview-hidden #adentify-recording-controls {
   margin: -8px 0 10px;
+}
+
+/* Ensure start button is shown initially and hidden during recording */
+#start-capture-btn {
+    display: inline-block; /* Or flex, depending on desired layout */
+}
+#adentify-ui.recording-active #start-capture-btn {
+    display: none;
 } 

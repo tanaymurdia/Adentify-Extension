@@ -9,6 +9,8 @@ let streamId = null; // Store the desktop stream ID from the launcher
 let targetTabIdForCapture = null; // Store the tab ID to be captured
 // --- Muting State Tracking (Optional but Recommended) ---
 let tabMutedState = {}; // Store the last known muted state { tabId: boolean }
+// --- Fullscreen State Tracking ---
+let fullscreenedWindow = null; // Stores { id: windowId, previousState: windowState }
 
 // Utility to send message to content script
 function sendMessageToContentScript(tabId, message) {
@@ -30,29 +32,43 @@ chrome.action.onClicked.addListener(async (tab) => {
         console.error("Action click: No tab ID found.");
         return;
     }
-    captureTabId = tab.id;
-    console.log(`Action clicked on tab: ${captureTabId}, ensuring content script and sending toggle-overlay`);
+    const clickedTabId = tab.id;
+    console.log(`Action clicked on tab: ${clickedTabId}`);
+
+    // --- MODIFIED: Check if capture is active on THIS tab --- 
+    const activeCaptureTabId = targetTabIdForCapture || captureTabId; 
+    if (isCaptureActive && activeCaptureTabId === clickedTabId) {
+        console.log(`Background: Capture active on this tab (${clickedTabId}). Sending toggle-overlay to potentially show UI.`);
+        // Just send the toggle message to show/hide the existing UI
+        sendMessageToContentScript(clickedTabId, { type: 'toggle-overlay' });
+        return; // Don't proceed to inject/re-initialize
+    }
+    // --- END MODIFICATION ---
+
+    // If capture is not active on this tab, proceed as before
+    console.log(`Background: No active capture on tab ${clickedTabId} or capture inactive. Ensuring script and sending toggle-overlay.`);
+    captureTabId = clickedTabId; // Update captureTabId for potential new capture start
 
     try {
         // Ensure the content script is loaded before sending the message
         await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
+            target: { tabId: clickedTabId },
             files: ['content_script.bundle.js'] // Ensure this matches your bundled output
         });
         // Optional: Inject CSS too if not relying on manifest injection
         // await chrome.scripting.insertCSS({
-        //     target: { tabId: tab.id },
+        //     target: { tabId: clickedTabId },
         //     files: ['overlay.css']
         // });
 
         // Now send the message
-        sendMessageToContentScript(captureTabId, { type: 'toggle-overlay' });
+        sendMessageToContentScript(clickedTabId, { type: 'toggle-overlay' });
         console.log(`Background: Sent toggle-overlay after ensuring script injection.`);
     } catch (error) {
-        console.error(`Background: Failed to execute script or send message on tab ${tab.id}:`, error);
+        console.error(`Background: Failed to execute script or send message on tab ${clickedTabId}:`, error);
         // Optionally, notify the user via an extension badge or popup if the action fails
-        // chrome.action.setBadgeText({ tabId: tab.id, text: 'ERR' });
-        // chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: '#FF0000' });
+        // chrome.action.setBadgeText({ tabId: clickedTabId, text: 'ERR' });
+        // chrome.action.setBadgeBackgroundColor({ tabId: clickedTabId, color: '#FF0000' });
     }
 });
 
@@ -95,12 +111,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               }
               break;
           case 'offscreen-recording-stopped':
-              // --- MODIFIED: Explicitly unmute tab on stop ---
+              // --- MODIFIED: Explicitly unmute tab and restore window state on stop ---
               const tabToNotifyStop = targetTabIdForCapture || captureTabId;
-              console.log(`Background: Received offscreen-recording-stopped. Cleaning up state and unmuting tab: ${tabToNotifyStop}`);
-              
+              const windowIdToRestore = fullscreenedWindow?.id; // Get window ID before cleanup
+              console.log(`Background: Received offscreen-recording-stopped. Cleaning up state, unmuting tab: ${tabToNotifyStop}, restoring window: ${windowIdToRestore}`);
+
               // Cleanup internal state first (this clears targetTabIdForCapture and captureTabId)
-              cleanupState(); 
+              cleanupState(); // This will also call restoreWindowState
 
               // Now, unmute the tab (if we have an ID)
               if (tabToNotifyStop) {
@@ -503,6 +520,11 @@ function cleanupState() {
     // recordedChunks = []; // REMOVED
     // Keep tabMutedState - we might want to restore mute state later?
     // Or clear it: tabMutedState = {};
+
+    // --- ADDED: Ensure window state is restored on cleanup ---
+    restoreWindowState();
+    // --- END ADDITION ---
+
     console.log("Background: State cleanup complete.");
 }
 
@@ -545,6 +567,17 @@ async function startTabCapture() {
     console.log(`Background: Attempting chrome.tabCapture.getMediaStreamId for tab ${targetTabIdForCapture}`);
 
     try {
+        // --- ADDED: Make window fullscreen ---
+        const tab = await chrome.tabs.get(targetTabIdForCapture);
+        if(tab.windowId) {
+            await setWindowFullscreen(tab.windowId);
+            // --- ADDED: Short delay after fullscreen ---
+            await new Promise(resolve => setTimeout(resolve, 250)); // 250ms delay
+            console.log("Background: Delay complete after fullscreen.");
+            // --- END ADDITION ---
+        }
+        // --- END ADDITION ---
+
         // Get a media stream ID for the target tab
         const streamId = await chrome.tabCapture.getMediaStreamId({
           targetTabId: targetTabIdForCapture
@@ -583,6 +616,86 @@ async function startDesktopCapture(desktopStreamId) {
      }
 
     console.log(`Background: Starting desktop capture with stream ID: ${desktopStreamId}`);
+
+    // --- ADDED: Make window fullscreen ---
+    if (captureTabId) { // Need the initiating tab's window ID
+        try {
+            const tab = await chrome.tabs.get(captureTabId);
+            if (tab.windowId) {
+                await setWindowFullscreen(tab.windowId);
+                // --- ADDED: Short delay after fullscreen ---
+                await new Promise(resolve => setTimeout(resolve, 250)); // 250ms delay
+                console.log("Background: Delay complete after fullscreen.");
+                // --- END ADDITION ---
+            }
+        } catch (error) {
+            console.warn(`Could not get initiating tab ${captureTabId} to make window fullscreen:`, error);
+        }
+    }
+    // --- END ADDITION ---
+
     // Start the capture process using the provided stream ID
     await startCapture(desktopStreamId, 'desktop'); // Pass streamId and type
 }
+
+// --- Fullscreen Helper Functions ---
+async function setWindowFullscreen(windowId) {
+  if (!windowId) {
+    console.error("setWindowFullscreen: No window ID provided.");
+    return;
+  }
+  if (fullscreenedWindow?.id === windowId) {
+      console.warn(`setWindowFullscreen: Window ${windowId} is already being managed for fullscreen.`);
+      return; // Avoid redundant operations
+  }
+
+  console.log(`setWindowFullscreen: Attempting to make window ${windowId} fullscreen.`);
+  try {
+    const window = await chrome.windows.get(windowId);
+    if (window.state === 'fullscreen') {
+        console.log(`Window ${windowId} is already fullscreen.`);
+        // Store it anyway so we can restore if needed
+        fullscreenedWindow = { id: windowId, previousState: 'fullscreen' };
+        return;
+    }
+
+    const previousState = window.state;
+    fullscreenedWindow = { id: windowId, previousState: previousState };
+    console.log(`Stored previous state '${previousState}' for window ${windowId}.`);
+
+    await chrome.windows.update(windowId, { state: 'fullscreen' });
+    console.log(`Window ${windowId} successfully set to fullscreen.`);
+
+  } catch (error) {
+    console.error(`Error setting window ${windowId} to fullscreen:`, error?.message || error);
+    fullscreenedWindow = null; // Clear state if failed
+  }
+}
+
+async function restoreWindowState() {
+  if (!fullscreenedWindow?.id || !fullscreenedWindow?.previousState) {
+    // console.log("restoreWindowState: No window state to restore."); // Can be noisy
+    return; // Nothing to restore
+  }
+
+  const { id: windowId, previousState } = fullscreenedWindow;
+  console.log(`restoreWindowState: Attempting to restore window ${windowId} to state '${previousState}'.`);
+
+  // Reset stored state immediately to prevent race conditions/multiple attempts
+  fullscreenedWindow = null; 
+
+  try {
+    const currentWindow = await chrome.windows.get(windowId);
+    // Only restore if it's currently fullscreen (don't override user changes)
+    if (currentWindow.state === 'fullscreen') {
+      await chrome.windows.update(windowId, { state: previousState });
+      console.log(`Window ${windowId} successfully restored to state '${previousState}'.`);
+    } else {
+        console.log(`Window ${windowId} is no longer fullscreen (state: ${currentWindow.state}). Skipping restore.`);
+    }
+  } catch (error) {
+    // Error likely means window was closed
+    console.warn(`Could not restore state for window ${windowId} (maybe closed?):`, error?.message || error);
+  }
+}
+// --- End Fullscreen Helpers ---
