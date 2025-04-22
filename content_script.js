@@ -11,6 +11,7 @@ const startCaptureButton = document.createElement('button');
 const stopCaptureButton = document.createElement('button');
 const statusMessage = document.createElement('span'); // For messages like "Recording..."
 const restrictedMessageDiv = document.createElement('div'); // New element for restriction message
+const classificationResultDiv = document.createElement('div'); // NEW: For classification result
 
 // --- State ---
 let isCaptureActive = false;
@@ -64,6 +65,17 @@ restrictedMessageDiv.style.fontStyle = 'italic';
 restrictedMessageDiv.style.display = 'none'; // Hide initially
 restrictedMessageDiv.style.pointerEvents = 'auto'; // Allow interaction if needed later
 uiContainer.appendChild(restrictedMessageDiv);
+
+// --- NEW: Classification Result Area ---
+classificationResultDiv.id = 'adentify-classification-result';
+classificationResultDiv.style.marginTop = '5px'; // Space below toolbar
+classificationResultDiv.style.padding = '5px';
+classificationResultDiv.style.textAlign = 'center';
+classificationResultDiv.style.fontSize = '0.9em';
+classificationResultDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.3)'; // Slightly different background
+classificationResultDiv.style.borderRadius = '4px';
+classificationResultDiv.style.display = 'none'; // Initially hidden
+uiContainer.insertBefore(classificationResultDiv, previewContainer); // Add it before the preview
 
 // --- Setup Toolbar Elements ---
 function styleButton(button, text) {
@@ -159,6 +171,12 @@ function updateUIForCaptureState(isActive, error = null) {
         statusMessage.textContent = ''; // Clear status when idle
     }
 
+    // Clear classification result when stopping
+    if (!isActive) {
+        classificationResultDiv.textContent = '';
+        classificationResultDiv.style.display = 'none';
+    }
+
     // Clear canvas if capture stops
     if (!isActive) {
         previewCtx.fillStyle = '#333';
@@ -180,6 +198,7 @@ function toggleOverlay(show) {
         toolbar.style.display = 'none';
         previewContainer.style.display = 'none';
         restrictedMessageDiv.style.display = isOverlayVisible ? 'block' : 'none';
+        classificationResultDiv.style.display = 'none'; // Hide classification on restricted pages
     } else {
         // Page is not restricted
         restrictedMessageDiv.style.display = 'none';
@@ -187,10 +206,13 @@ function toggleOverlay(show) {
             // Show the toolbar and update its contents
             toolbar.style.display = 'flex'; // Explicitly show toolbar
             updateUIForCaptureState(isCaptureActive); // Update Start/Stop buttons and Preview
+            // Show classification only if active capture AND overlay is visible
+            classificationResultDiv.style.display = isCaptureActive ? 'block' : 'none';
         } else {
             // Hide toolbar and preview when overlay is hidden
             toolbar.style.display = 'none';
             previewContainer.style.display = 'none';
+            classificationResultDiv.style.display = 'none'; // Hide classification when overlay is hidden
         }
     }
 }
@@ -261,6 +283,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             drawPreviewFrame(message.payload.frameDataUrl);
         }
         break;
+    // --- NEW: Handle Classification Result ---
+    case 'classification-result':
+        // console.log("Message received: classification-result", message.payload);
+        if (isCaptureActive) {
+            classificationResultDiv.textContent = `Detected: ${message.payload || '...'}`;
+            classificationResultDiv.style.display = 'block'; // Ensure visible
+        }
+        break;
   }
   return needsResponse; // Return true if sendResponse is used asynchronously
 });
@@ -309,4 +339,5 @@ if (isPageRestricted) {
 } else {
     updateUIForCaptureState(false); // Setup initial button state
 }
-toggleOverlay(false); // Start hidden 
+toggleOverlay(false); // Start hidden
+classificationResultDiv.style.display = 'none'; // Ensure hidden initially 

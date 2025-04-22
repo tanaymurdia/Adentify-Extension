@@ -7,7 +7,7 @@ let streamId = null; // Store the desktop stream ID from the launcher
 
 // --- Tab Capture Specific Variables ---
 let targetTabIdForCapture = null; // Store the tab ID to be captured
-let recordedChunks = []; // Array to store received Blob chunks
+// let recordedChunks = []; // Removed - No longer saving chunks
 
 // Utility to send message to content script
 function sendMessageToContentScript(tabId, message) {
@@ -54,28 +54,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // --- Handle Messages FROM Offscreen Document FIRST ---
   const offscreenMessageTypes = [
-    'offscreen-recording-started',
-    'offscreen-recording-stopped',
+    'offscreen-recording-started', // Now means stream/preview active
+    'offscreen-recording-stopped', // Now means stream/preview stopped
     'offscreen-error',
-    'new-chunk',
-    'preview-frame'
+    // 'new-chunk', // Removed
+    'preview-frame', // Still used for preview in content script
+    'classification-result' // NEW: Forward from offscreen to content
   ];
 
-  // Check if the message type is known to come from offscreen
-  // (message.target === 'offscreen' isn't reliable if sender is the background script itself)
   if (offscreenMessageTypes.includes(message.type)) {
-      console.log(`Background: Received message type ${message.type} from offscreen.`);
+      // console.log(`Background: Received message type ${message.type} from offscreen.`);
       switch (message.type) {
           case 'offscreen-recording-started':
               isCaptureActive = true;
-              recordedChunks = [];
+              // recordedChunks = []; // Removed
               const tabToNotifyStart = targetTabIdForCapture || captureTabId;
               if (tabToNotifyStart) {
                   sendMessageToContentScript(tabToNotifyStart, { type: 'capture-state-active' });
               }
               break;
           case 'offscreen-recording-stopped':
-              processRecordedData();
+              // processRecordedData(); // Removed - No data to process
               cleanupState();
               const tabToNotifyStop = targetTabIdForCapture || captureTabId;
               if (tabToNotifyStop) {
@@ -94,13 +93,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   });
               }
               break;
-          case 'new-chunk':
-              if (message.payload?.chunk) {
-                  recordedChunks.push(message.payload.chunk);
-              } else {
-                  console.warn("Received 'new-chunk' message without chunk data.");
-              }
-              break;
+          // case 'new-chunk': // Removed
+          //     if (message.payload?.chunk) {
+          //         recordedChunks.push(message.payload.chunk);
+          //     } else {
+          //         console.warn("Received 'new-chunk' message without chunk data.");
+          //     }
+          //     break;
           case 'preview-frame':
               const targetPreviewTab = targetTabIdForCapture || captureTabId;
               if (isCaptureActive && targetPreviewTab && message.payload?.frameDataUrl) {
@@ -110,13 +109,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   });
               }
               break;
+           case 'classification-result': // NEW: Forward classification result
+              const targetClassTab = targetTabIdForCapture || captureTabId;
+              if (isCaptureActive && targetClassTab && message.payload) {
+                   sendMessageToContentScript(targetClassTab, {
+                       type: 'classification-result',
+                       payload: message.payload // Forward the payload directly
+                   });
+              }
+              break;
       }
       return false; // Indicate message handled, stop processing
   }
 
   // --- Handle Messages from Content Script / Launcher ---
-  // Only process these if not handled above
-  console.log(`Background: Received message type ${message.type} from content/launcher.`);
+  // console.log(`Background: Received message type ${message.type} from content/launcher.`);
   switch (message.type) {
     case 'request-start-tab-capture':
         console.log("Received request-start-tab-capture.");
@@ -248,16 +255,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'request-stop-capture': // From content script
         console.log("Received request-stop-capture");
-        stopCapture();
-        // Don't send response immediately, wait for confirmation from offscreen
-        // sendResponse({ success: true }); // removed
-        break;
+        if (!isCaptureActive) {
+            console.warn("Stop requested, but capture is not active.");
+            // Optionally notify content script it's already stopped
+            if (sender.tab?.id) {
+                 sendMessageToContentScript(sender.tab.id, { type: 'capture-state-inactive', payload: { error: 'Capture was not active.' } });
+            }
+            return false;
+        }
+        // Simply tell the offscreen document to stop
+        stopCapture(); // This now just sends 'stop-recording' to offscreen
+        needsAsyncResponse = true;
+        sendResponse({ success: true, message: "Stop signal sent to offscreen document." });
+      break;
 
     default:
-      // This log should now only appear for truly unknown message types
-      console.warn("Received genuinely unknown message type:", message.type);
-      return false;
+      console.warn(`Background: Unhandled message type: ${message.type}`);
   }
+
   return needsAsyncResponse;
 });
 
@@ -329,93 +344,77 @@ async function setupOffscreenDocument() {
 
 // --- End Offscreen Document Management ---
 
-// 3. Start the actual media capture process
-async function startCapture() {
-    if (!streamId) {
-        console.error("Cannot start capture without a stream ID.");
-        if(captureTabId) {
-            sendMessageToContentScript(captureTabId, { type: 'capture-state-inactive', payload: { error: 'Missing stream ID for capture.' } });
-        }
-        cleanupState();
-        return;
-    }
-    if (!captureTabId) {
-        console.error("Cannot start capture without a target tab ID.");
-        // This shouldn't happen if the flow is correct, but handle defensively.
-        cleanupState();
-        return;
-    }
-     if (isCaptureActive) {
-        console.warn("Start capture called but already active.");
-        return;
-    }
-
-    console.log(`Starting capture process with stream ID: ${streamId} for tab ${captureTabId}`);
-
-    // Ensure the offscreen document is ready
+// Generic start capture function (called by tab/desktop specific starts)
+async function startCapture(captureType, streamId) {
+  console.log(`startCapture called. Type: ${captureType}, Has Stream ID: ${!!streamId}`);
+  if (!(await hasOffscreenDocument())) {
+    console.log("Creating offscreen document...");
     await setupOffscreenDocument();
-    if (!(await hasOffscreenDocument())) {
-        console.error("Offscreen document setup failed or didn't complete in time.");
-         if (captureTabId) {
-             sendMessageToContentScript(captureTabId, { type: 'capture-state-inactive', payload: { error: 'Recorder setup failed.' } });
-         }
-         cleanupState();
-        return;
+  }
+
+  // Send the command to the offscreen document to start recording
+  chrome.runtime.sendMessage({
+    type: 'start-recording',
+    target: 'offscreen',
+    payload: { streamId: streamId, captureType: captureType } // Pass both
+  }).then(response => {
+      console.log("Background: Sent start-recording to offscreen, response:", response);
+      // No longer need to do anything specific here on success
+  }).catch(err => {
+    console.error("Background: Error sending start-recording message to offscreen:", err);
+    // Send error back to the content script
+    const errorTab = targetTabIdForCapture || captureTabId;
+    if (errorTab) {
+      sendMessageToContentScript(errorTab, {
+        type: 'capture-state-inactive',
+        payload: { error: `Failed to communicate with offscreen document: ${err.message}` }
+      });
     }
-
-    // Send streamId to the offscreen document to start recording
-    console.log("Sending streamId to offscreen document to start recording...");
-    chrome.runtime.sendMessage({
-        type: 'start-offscreen-recording',
-        target: 'offscreen',
-        payload: { streamId: streamId }
-    }).catch(err => {
-        console.error("Error sending start message to offscreen document:", err);
-        if(captureTabId) {
-            sendMessageToContentScript(captureTabId, { type: 'capture-state-inactive', payload: { error: `Failed to communicate with recorder: ${err.message}` } });
-        }
-        cleanupState(); // Clean up if sending message fails
-    });
-
-    // Note: Actual state `isCaptureActive = true` and sending `capture-state-active`
-    // will now happen *after* we receive confirmation ('offscreen-recording-started')
-    // from the offscreen document. This makes the UI state more accurate.
+    cleanupState();
+  });
 }
 
-// 4. Stop the capture
+// Generic stop capture function
 function stopCapture() {
-    console.log("stopCapture called.");
-    // If already stopping or inactive, do nothing extra
-    if (!isCaptureActive) { // Check if background thinks capture is active
-         console.log("stopCapture called, but background state is not active.");
-         // Still attempt cleanup, but don't send stop message if already inactive
-         cleanupState();
-         closeOffscreenDocument();
-         return;
-    }
+  if (!isCaptureActive) {
+    console.warn("stopCapture called, but capture wasn't active.");
+    return; // Nothing to do if not active
+  }
 
-    console.log("Sending stop message to offscreen document...");
-    // Send message to offscreen document to stop recording
-    // No need to check hasOffscreenDocument, send anyway, it will fail gracefully if closed
-    chrome.runtime.sendMessage({ type: 'stop-recording', target: 'offscreen' })
-        .catch(err => console.warn("Could not send stop message to offscreen:", err.message)); // Usually means it's already closed
-
-    // Important: Don't reset state immediately here.
-    // Wait for 'offscreen-recording-stopped' message which signifies
-    // recording has actually stopped and potentially data is ready.
-    // cleanupState() will be called when that message is received.
-    // isCaptureActive = false; // Move this to cleanupState or when 'offscreen-recording-stopped' received
+  console.log("Background: Sending stop-recording message to offscreen document...");
+  // Send stop message to offscreen document
+  chrome.runtime.sendMessage({ type: 'stop-recording', target: 'offscreen' })
+    .catch(error => {
+      console.warn("Background: Error sending stop message to offscreen (maybe already closed?):", error.message);
+      // If sending fails, the offscreen doc might already be gone.
+      // We should still clean up the background state.
+      cleanupState();
+      const errorTab = targetTabIdForCapture || captureTabId;
+      if (errorTab) {
+        // Notify UI just in case
+        sendMessageToContentScript(errorTab, { type: 'capture-state-inactive' });
+      }
+    });
+  // Note: Actual state cleanup (isCaptureActive = false) happens when
+  // 'offscreen-recording-stopped' message is received back.
 }
 
-// Utility function to reset state variables
+// --- Cleanup Background State ---
 function cleanupState() {
-    console.log("Cleaning up background state.");
+    console.log("Cleaning up background state...");
     isCaptureActive = false;
-    // recorder = null; // Removed
+    // recordedChunks = []; // Removed
+    // streamId = null; // Keep streamId if it came from desktop picker? No, clear it.
     streamId = null;
-    targetTabIdForCapture = null;
-    recordedChunks = [];
-    // captureTabId is intentionally kept
+    // Keep captureTabId for potential future interactions?
+    // captureTabId = null; // Clear initiating tab ID?
+    targetTabIdForCapture = null; // Clear specific tab target
+
+    // Attempt to close the offscreen document if it exists
+    closeOffscreenDocument().catch(err => {
+        // Ignore errors here, maybe already closed
+        // console.warn("Ignoring error during cleanup closeOffscreenDocument:", err.message);
+    });
 }
 
 // Function to close the offscreen document (optional)
@@ -445,63 +444,43 @@ console.log("Background script fully initialized and event listeners registered.
 
 // --- NEW: Start Tab Capture Process ---
 async function startTabCapture() {
-    if (!targetTabIdForCapture) {
-        console.error("Target tab ID for capture is not set.");
-        return;
-    }
-    // Ensure offscreen document is ready
-    const offscreenReady = await setupOffscreenDocument();
-    if (!offscreenReady) {
-        console.error("Failed to set up offscreen document for tab capture.");
-        return; // setupOffscreenDocument should have handled error reporting
-    }
+  console.log("Initiating Tab Capture...");
+  if (!targetTabIdForCapture) {
+      console.error("Cannot start tab capture, targetTabIdForCapture is not set.");
+      // Notify the original initiating tab (if known)
+      if (captureTabId) {
+           sendMessageToContentScript(captureTabId, { type: 'capture-state-inactive', payload: { error: 'Target tab for capture not set.' } });
+      }
+      cleanupState();
+      return;
+  }
 
-    try {
-        console.log(`Requesting stream ID for tab: ${targetTabIdForCapture}`);
-        // Get the stream ID for the target tab
-        const tabStreamId = await chrome.tabCapture.getMediaStreamId({
-            targetTabId: targetTabIdForCapture
-        });
-
-        if (!tabStreamId) {
-             console.error("Failed to get stream ID for tab capture.");
-             throw new Error("Could not get tab media stream ID.");
-        }
-
-        console.log(`Obtained tab stream ID: ${tabStreamId}. Sending to offscreen doc.`);
-        // Send message to offscreen document to start recording with this stream ID
-        chrome.runtime.sendMessage({
-            type: 'start-recording',
-            target: 'offscreen', // Identify the target recipient
-            payload: {
-                captureType: 'tab', // Specify the type
-                streamId: tabStreamId, // The crucial ID
-                tabId: targetTabIdForCapture // Pass the tab ID for context if needed
-                // Add any other config: quality, audio settings etc.
-            }
-        });
-        // State change (isCaptureActive = true) will happen upon confirmation ('offscreen-recording-started')
-
-    } catch (error) {
-        console.error("Error during tab capture startup:", error);
-        const errorTabToNotify = targetTabIdForCapture || captureTabId;
-        if (errorTabToNotify) {
-            sendMessageToContentScript(errorTabToNotify, {
-                type: 'capture-state-inactive',
-                payload: { error: `Tab capture failed: ${error.message}` }
-            });
-        }
-        cleanupState();
-        await closeOffscreenDocument(); // Attempt cleanup
-    }
+  try {
+      // Using chrome.tabCapture.getMediaStreamId requires the active tab to be the target
+      // This is usually okay as the user action likely triggered it from the target tab.
+      const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: targetTabIdForCapture });
+      console.log(`Tab capture stream ID obtained: ${streamId} for tab ${targetTabIdForCapture}`);
+      if (!streamId) {
+          throw new Error("Failed to get tab capture stream ID (returned null/empty).");
+      }
+      await startCapture('tab', streamId); // Pass type and streamId
+  } catch (error) {
+      console.error("Error getting tab capture stream ID:", error);
+      sendMessageToContentScript(targetTabIdForCapture, {
+          type: 'capture-state-inactive',
+          payload: { error: `Failed to start tab capture: ${error.message}` }
+      });
+      cleanupState();
+  }
 }
 
 // --- MODIFIED: Start Desktop/Window Capture Process ---
 async function startDesktopCapture(desktopStreamId) {
+    console.log("Initiating Desktop Capture with stream ID:", desktopStreamId);
     if (!desktopStreamId) {
-        console.error("Cannot start desktop capture without a stream ID.");
-        if(captureTabId) { // Use the original initiating tab for error reporting
-            sendMessageToContentScript(captureTabId, { type: 'capture-state-inactive', payload: { error: 'Missing stream ID for capture.' } });
+        console.error("startDesktopCapture called without stream ID.");
+        if (captureTabId) {
+             sendMessageToContentScript(captureTabId, { type: 'capture-state-inactive', payload: { error: 'Desktop stream ID missing.' } });
         }
         cleanupState();
         return;
@@ -527,61 +506,4 @@ async function startDesktopCapture(desktopStreamId) {
      // State change (isCaptureActive = true) will happen upon confirmation ('offscreen-recording-started')
 }
 
-// --- NEW: Process Recorded Data ---
-function processRecordedData() {
-    if (recordedChunks.length === 0) {
-        console.warn("Recording stopped, but no data chunks were received.");
-        return;
-    }
-    console.log(`Processing ${recordedChunks.length} recorded chunks.`);
-
-    const mimeType = 'video/webm;codecs=vp9';
-    const recordedBlob = new Blob(recordedChunks, { type: mimeType });
-
-    // --- Convert Blob to data URL --- 
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const dataUrl = e.target.result;
-        console.log("Blob converted to data URL (length):", dataUrl.length); // Log length, not the whole URL
-
-        // Trigger download using the data URL
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = `capture-${timestamp}.webm`;
-        console.log(`Attempting to download as ${filename}`);
-        chrome.downloads.download({
-            url: dataUrl,
-            filename: filename
-        }).then(downloadId => {
-            if (downloadId) {
-                 console.log(`Download started with ID: ${downloadId}`);
-            } else {
-                 console.warn("Download did not start (check permissions and URL?).");
-            }
-        }).catch(err => {
-            console.error("Download failed:", err);
-            // Notify user of download failure if possible (optional)
-            const errorTabToNotify = targetTabIdForCapture || captureTabId;
-            if (errorTabToNotify) {
-                sendMessageToContentScript(errorTabToNotify, {
-                    type: 'capture-state-inactive',
-                    payload: { error: `Failed to save recording: ${err.message}` }
-                });
-            }
-        });
-
-        // Clear the chunks *after* successful read and download attempt
-        recordedChunks = [];
-    };
-    reader.onerror = function(e) {
-        console.error("FileReader error:", e.target.error);
-        // Clear chunks even on error
-        recordedChunks = [];
-    };
-    reader.readAsDataURL(recordedBlob);
-    // --- End conversion ---
-
-    // --- REMOVED old URL.createObjectURL logic ---
-    // const blobUrl = URL.createObjectURL(recordedBlob);
-    // ... download logic using blobUrl ...
-    // recordedChunks = []; // Moved clearing chunks
-}
+console.log("Background script event listeners added.");

@@ -16,6 +16,7 @@
   "devDependencies": {
     "clean-webpack-plugin": "^4.0.0",
     "copy-webpack-plugin": "^13.0.0",
+    "onnxruntime-web": "^1.18.0",
     "webpack": "^5.99.6",
     "webpack-cli": "^6.0.1"
   }

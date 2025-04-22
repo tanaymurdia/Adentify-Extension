@@ -6,12 +6,49 @@ let previewCanvasCtx = null;
 let previewIntervalId = null; // ID for setInterval
 let audioContext = null; // Keep document awake
 let oscillator = null; // Silent audio source
+let onnxWorker = null; // Reference to the ONNX worker
+let lastFrameSentToWorker = 0; // Timestamp for worker throttling
 
 // Mime type configuration - adjust as needed
-const mimeType = 'video/webm;codecs=vp9';
-const CHUNK_TIMESLICE_MS = 1000; // Send chunks every 1 second
-const PREVIEW_FRAME_RATE = 10; // FPS for sending preview frames (lower than recording)
+// const mimeType = 'video/webm;codecs=vp9'; // No longer needed
+// const CHUNK_TIMESLICE_MS = 1000; // No longer needed
+const PREVIEW_FRAME_RATE = 10; // FPS for sending *preview* frames to content script
 const PREVIEW_QUALITY = 0.6; // JPEG quality for preview frames (0.0 to 1.0)
+const WORKER_PROCESSING_INTERVAL_MS = 1000; // Send frames to worker every 1 second (1 FPS)
+
+// --- NEW: Initialize Worker ---
+function initializeWorker() {
+    if (onnxWorker) return; // Already initialized
+
+    try {
+        // Assuming onnx_worker.js is bundled as onnx_worker.bundle.js by webpack
+        onnxWorker = new Worker('onnx_worker.bundle.js'); // Use bundled worker name
+        console.log("Offscreen: ONNX Worker instantiated.");
+
+        onnxWorker.onmessage = (event) => {
+            if (event.data && event.data.type === 'classification-result') {
+                // console.log("Offscreen: Received result from worker:", event.data.payload);
+                // Forward the result to the content script(s)
+                sendMessageToContentScript({
+                    type: 'classification-result',
+                    payload: event.data.payload
+                });
+            } else {
+                console.warn("Offscreen: Received unknown message from worker:", event.data);
+            }
+        };
+
+        onnxWorker.onerror = (error) => {
+            console.error("Offscreen: ONNX Worker error:", error);
+            // Handle worker errors, maybe try to restart it or notify the user
+        };
+    } catch (error) {
+        console.error("Offscreen: Failed to initialize ONNX Worker:", error);
+    }
+}
+
+// Call initializeWorker early, but it's safe to call multiple times
+initializeWorker();
 
 // Listen for messages from the background script
 chrome.runtime.onMessage.addListener(async (message) => {
@@ -35,10 +72,12 @@ chrome.runtime.onMessage.addListener(async (message) => {
 });
 
 async function startRecording(payload) {
-  if (recorder?.state === 'recording') {
-    console.warn("Offscreen: Recording is already in progress.");
-    return;
-  }
+  // --- Remove recorder state check --- 
+  // if (recorder?.state === 'recording') {
+  //   console.warn("Offscreen: Recording is already in progress.");
+  //   return;
+  // }
+  // --- End Remove recorder state check ---
 
   if (!payload || !payload.streamId || !payload.captureType) {
      console.error("Offscreen: Missing streamId or captureType in start payload.");
@@ -76,6 +115,9 @@ async function startRecording(payload) {
     // --- Start Preview Generation ---
     await startPreview(mediaStream);
 
+    // Ensure worker is initialized if it failed earlier or wasn't ready
+    initializeWorker();
+
     // Handle stream ending unexpectedly (e.g., user stops sharing)
     mediaStream.addEventListener('inactive', () => {
       console.warn('Offscreen: Media stream became inactive. Triggering stop.');
@@ -83,51 +125,11 @@ async function startRecording(payload) {
       stopRecording(); // This will eventually lead to 'offscreen-recording-stopped'
     });
 
-    // Start the MediaRecorder
-    recorder = new MediaRecorder(mediaStream, { mimeType: mimeType });
-
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        sendMessageToBackground({
-            type: 'new-chunk',
-            payload: { chunk: event.data }
-        });
-      } else {
-          // console.log("Offscreen: Received empty chunk");
-      }
-    };
-
-    recorder.onstop = () => {
-      console.log("Offscreen: MediaRecorder stopped.");
-      stopPreview();
-
-      if (mediaStream) {
-          mediaStream.getTracks().forEach(track => track.stop());
-          console.log("Offscreen: Media stream tracks stopped.");
-          mediaStream = null;
-      }
-      recorder = null;
-
-      sendMessageToBackground({ type: 'offscreen-recording-stopped' });
-      setTimeout(() => window.close(), 500);
-    };
-
-    recorder.onerror = (event) => {
-        console.error("Offscreen: MediaRecorder error:", event.error);
-        sendMessageToBackground({ type: 'offscreen-error', payload: { error: `MediaRecorder error: ${event.error.name || event.error}` } });
-        stopPreview(); // Stop preview loop
-        stopRecording(); // Attempt cleanup
-    };
-
-    // Start recording, generating chunks periodically
-    recorder.start(CHUNK_TIMESLICE_MS);
-    console.log("Offscreen: MediaRecorder started.");
-
-    // Inform background script recording has successfully started
+    // Inform background script recording has successfully started (Now means stream is active)
     sendMessageToBackground({ type: 'offscreen-recording-started' });
 
   } catch (error) {
-    console.error("Offscreen: Error starting recording:", error);
+    console.error("Offscreen: Error starting stream capture:", error); // Updated log message
     sendMessageToBackground({ type: 'offscreen-error', payload: { error: `Failed to get media: ${error.message}` } });
     stopPreview(); // Ensure preview stops on error
     // Clean up any partial state
@@ -135,27 +137,32 @@ async function startRecording(payload) {
         mediaStream.getTracks().forEach(track => track.stop());
         mediaStream = null;
     }
-    recorder = null;
+    // recorder = null; // No recorder to nullify
   }
 }
 
 async function stopRecording() {
-  stopPreview(); // Ensure preview loop is stopped first
-  if (recorder && recorder.state !== 'inactive') {
-    console.log("Offscreen: Stopping MediaRecorder...");
-    recorder.stop(); // This triggers the 'onstop' event handler
-  } else {
-    console.warn("Offscreen: stopRecording called, but recorder is not active.");
-    // Ensure tracks are stopped even if recorder state is weird
-    if (mediaStream) {
-        mediaStream.getTracks().forEach(track => track.stop());
-        mediaStream = null;
-    }
-    // Send stopped message just in case the background script missed it
-    sendMessageToBackground({ type: 'offscreen-recording-stopped' });
-    // Close immediately if recorder wasn't active
-    window.close();
+  console.log("Offscreen: stopRecording called.");
+  stopPreview(); // Ensure preview loop and worker are stopped first
+
+  // --- Simplified stop logic: Stop stream tracks directly --- 
+  if (mediaStream) {
+      mediaStream.getTracks().forEach(track => track.stop());
+      console.log("Offscreen: Media stream tracks stopped.");
+      mediaStream = null;
   }
+  // No recorder to check or stop
+  // --- End simplified stop logic ---
+
+  // Send stopped message to background
+  sendMessageToBackground({ type: 'offscreen-recording-stopped' });
+  
+  // Close the offscreen document after a short delay
+  console.log("Offscreen: Scheduling close.");
+  setTimeout(() => {
+      console.log("Offscreen: Closing window.");
+      window.close();
+  }, 500);
 }
 
 // --- NEW: Preview Generation Logic ---
@@ -263,6 +270,13 @@ function stopPreview() {
     }
      // --- End Keep Awake Audio Stop ---
 
+    // Terminate the worker when stopping preview/recording
+    if (onnxWorker) {
+        onnxWorker.terminate();
+        onnxWorker = null;
+        console.log("Offscreen: ONNX Worker terminated.");
+    }
+
     // Stop and clear video element
     if (previewVideoElement) {
         previewVideoElement.pause();
@@ -309,6 +323,18 @@ function grabFrame() {
             type: 'preview-frame',
             payload: { frameDataUrl: frameDataUrl }
         });
+
+        // --- Send Frame Data to Worker (Throttled) ---
+        const now = performance.now();
+        if (onnxWorker && now - lastFrameSentToWorker >= WORKER_PROCESSING_INTERVAL_MS) {
+            lastFrameSentToWorker = now;
+            // console.log("Offscreen: Sending data to worker.");
+            // Get ImageData from the canvas
+            const imageData = previewCanvasCtx.getImageData(0, 0, previewCanvas.width, previewCanvas.height);
+            // Send ImageData to the worker, transferring the buffer
+            onnxWorker.postMessage({ type: 'process-frame', payload: imageData }, [imageData.data.buffer]);
+        }
+
     } catch (error) {
         console.error("Offscreen: grabFrame: Error during draw/send:", error);
         stopPreview(); // Stop interval on error
@@ -330,5 +356,22 @@ function sendMessageToBackground(message) {
   });
 }
 
-// Initial log
-console.log("Offscreen document script loaded and ready.");
+// --- NEW: Function to send messages to content scripts ---
+async function sendMessageToContentScript(message) {
+    try {
+        // Find active tab where the recording might be happening or UI is shown
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (activeTab && activeTab.id) {
+             // console.log(`Offscreen: Sending message to content script in tab ${activeTab.id}:`, message.type);
+             chrome.tabs.sendMessage(activeTab.id, message);
+        } else {
+             console.warn("Offscreen: Could not find active tab to send message to content script.");
+        }
+    } catch (error) {
+        console.error("Offscreen: Error sending message to content script:", error);
+    }
+}
+
+console.log("Offscreen script loaded and listener added.");
+// Initialize worker on load
+initializeWorker();

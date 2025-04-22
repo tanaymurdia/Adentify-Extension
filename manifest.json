@@ -45,6 +45,7 @@
         "offscreen.bundle.js",
         "launcher.html",
         "launcher.bundle.js",
+        "onnx_worker.bundle.js",
         "overlay.js",
         "overlay.css",
         "icon128.png"
