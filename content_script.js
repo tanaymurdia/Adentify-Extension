@@ -22,12 +22,14 @@ if (window.adentifyScriptInjected) {
   const predictionDisplay = document.createElement('div');
   const dragHandle = document.createElement('span');
   const recordingControls = document.createElement('div');
+  const previewToggleButton = document.createElement('button');
 
   // --- State ---
   let isCaptureActive = false;
   let isPageRestricted = false;
   let lastFrameTime = 0;
   const FRAME_RATE_LIMIT = 15;
+  let isPreviewVisible = true;
 
   // --- Draggable State ---
   let isDragging = false;
@@ -73,7 +75,7 @@ if (window.adentifyScriptInjected) {
   });
   uiContainer.appendChild(startCaptureButton);
 
-  // --- Setup Recording Content (Preview + Controls) ---
+  // --- Setup Recording Content (Preview + Controls + Toggle) ---
   previewContainer.id = 'adentify-preview';
 
   // NEW Canvas Wrapper
@@ -90,9 +92,31 @@ if (window.adentifyScriptInjected) {
   uiContainer.appendChild(previewContainer);
 
   recordingControls.id = 'adentify-recording-controls';
+  // Styles moved to CSS
+
+  // Append elements in NEW order: Prediction -> Toggle -> Status -> Stop
+  predictionDisplay.id = 'adentify-prediction';
+  predictionDisplay.textContent = 'No Basketball'; // Initial reset state
+  recordingControls.appendChild(predictionDisplay);
+
+  // Create and Add Preview Toggle Button HERE
+  previewToggleButton.id = 'adentify-preview-toggle-btn';
+  previewToggleButton.textContent = 'Hide Preview'; // Initial state
+  previewToggleButton.removeAttribute('style'); // Rely on CSS
+  previewToggleButton.addEventListener('click', () => {
+      isPreviewVisible = !isPreviewVisible;
+      previewContainer.classList.toggle('hidden', !isPreviewVisible);
+      previewToggleButton.textContent = isPreviewVisible ? 'Hide Preview' : 'Show Preview';
+  });
+  recordingControls.appendChild(previewToggleButton); // Add to controls div
+
+  statusMessage.id = 'adentify-status'; // Keep status message for errors
+  statusMessage.removeAttribute('style');
+  recordingControls.appendChild(statusMessage); // Place it after toggle
 
   stopCaptureButton.textContent = 'Stop';
   stopCaptureButton.id = 'stop-capture-btn';
+  // Styles moved to CSS
   stopCaptureButton.removeAttribute('style');
   stopCaptureButton.addEventListener('click', () => {
       console.log("Stop Capture button clicked");
@@ -102,10 +126,6 @@ if (window.adentifyScriptInjected) {
   });
   recordingControls.appendChild(stopCaptureButton);
 
-  predictionDisplay.id = 'adentify-prediction';
-  predictionDisplay.textContent = 'Prediction: N/A';
-  recordingControls.appendChild(predictionDisplay);
-
   uiContainer.appendChild(recordingControls);
 
   // --- Setup Restricted Message ---
@@ -113,29 +133,33 @@ if (window.adentifyScriptInjected) {
   restrictedMessageDiv.textContent = 'Screen recording is not available on this page.';
   uiContainer.appendChild(restrictedMessageDiv);
 
-  // --- Setup Status Message ---
-  statusMessage.id = 'adentify-status';
-  statusMessage.removeAttribute('style');
-  recordingControls.appendChild(statusMessage);
-
   // --- Update UI based on capture state ---
   function updateUIForCaptureState(isActive, error = null) {
       isCaptureActive = isActive;
       console.log(`Updating UI - Capture Active: ${isCaptureActive}, Error: ${error}`);
 
-      // Add/remove class to main container for state-specific styling
       uiContainer.classList.toggle('recording-active', isActive);
 
       startCaptureButton.classList.toggle('hidden', isActive);
       startCaptureButton.disabled = false; // Re-enable unless starting
 
-      previewContainer.classList.toggle('hidden', !isActive);
+      // Show/hide recording specific elements
       recordingControls.classList.toggle('hidden', !isActive);
+      previewToggleButton.classList.toggle('hidden', !isActive);
       stopCaptureButton.disabled = false; // Re-enable unless stopping
+
+      // Handle preview visibility based on its state *only if active*
+      if (isActive) {
+          previewContainer.classList.toggle('hidden', !isPreviewVisible);
+          previewToggleButton.textContent = isPreviewVisible ? 'Hide Preview' : 'Show Preview';
+      } else {
+          previewContainer.classList.add('hidden'); // Ensure preview is hidden when not active
+      }
 
       if (!isActive) {
           predictionDisplay.textContent = 'No Basketball'; // Reset text on stop
           predictionDisplay.classList.remove('prediction-basketball'); // Ensure accent class is removed
+          isPreviewVisible = true; // Reset preview state for next time
           // Clear preview canvas
           previewCtx.fillStyle = '#1a1f2c'; // Match new background
           previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
@@ -143,7 +167,6 @@ if (window.adentifyScriptInjected) {
 
       // Update status message visibility and content
       if (isActive) {
-          // statusMessage.textContent = 'Recording...'; // Content not needed
           statusMessage.classList.add('hidden'); // Hide during active recording
       } else if (error) {
           statusMessage.textContent = `Error: ${error}`;
@@ -172,6 +195,7 @@ if (window.adentifyScriptInjected) {
               closeButton.classList.add('hidden');
               dragHandle.classList.add('hidden');
               restrictedMessageDiv.classList.remove('hidden');
+              previewToggleButton.classList.add('hidden');
           } else {
               console.log(`Page not restricted. Updating UI state.`);
               restrictedMessageDiv.classList.add('hidden');
@@ -294,8 +318,10 @@ if (window.adentifyScriptInjected) {
       closeButton.classList.add('hidden');
       dragHandle.classList.add('hidden');
       restrictedMessageDiv.classList.add('hidden');
+      previewToggleButton.classList.add('hidden');
   } else {
       restrictedMessageDiv.classList.add('hidden');
+      previewToggleButton.classList.add('hidden');
       updateUIForCaptureState(false);
   }
 

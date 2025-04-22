@@ -68,9 +68,9 @@
   background-color: #38444d; /* Darker gray */
   color: #e0e0e0;
   border: 1px solid #4a5861;
-  padding: 6px 14px; /* Reduced padding */
-  border-radius: 18px; /* Slightly smaller radius */
-  font-size: 13px; /* Reduced font size */
+  padding: 6px 12px; /* Consistent padding */
+  border-radius: 16px; /* Consistent radius */
+  font-size: 12px; /* Consistent font size */
   font-weight: bold;
   cursor: pointer;
   transition: all 0.15s ease-in-out;
@@ -135,23 +135,52 @@
   /* border: 1px solid #38444d; */ /* REMOVED - Applied to wrapper */
 }
 
+/* --- Preview Toggle Button --- */
+#adentify-preview-toggle-btn {
+  /* NEW Styles - Less prominent button */
+  background-color: #2a313f; /* Darker than Stop button base */
+  color: #a0b0c0; /* Muted text */
+  border: 1px solid #404a50; /* Subtle border */
+  padding: 6px 12px; /* MATCH Stop button */
+  border-radius: 16px; /* MATCH Stop button */
+  font-size: 12px; /* MATCH Stop button */
+  font-weight: normal;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  flex-shrink: 0; /* Don't shrink */
+}
+
+#adentify-preview-toggle-btn:hover {
+  background-color: #38444d; /* Match Stop button base on hover */
+  color: #e0e0e0;
+  border-color: #4a5861;
+}
+
 #adentify-recording-controls {
+  /* Re-order this to appear after toggle button */
+  /* order: 2; */ /* REMOVED */
   display: flex;
-  justify-content: space-between;
+  /* justify-content: space-between; */
+  justify-content: flex-start; /* Align items to start */
   align-items: center;
   /* width: 100%; */ /* REMOVED - Let flex items determine width */
   padding: 0 5px; /* Small padding for alignment */
   align-self: stretch; /* Ensure it stretches to container width if needed */
+  /* margin-top: 5px; */ /* REMOVED */
+  gap: 8px; /* Use gap for spacing */
 }
 
 #adentify-prediction {
-  font-size: 12px; /* Reduced font size */
+  font-size: 13px; /* INCREASED font size */
   font-weight: normal;
   color: #a0b0c0; /* Muted text color - Default for 'No Basketball' */
-  margin-left: 8px; /* Slightly reduced space */
-  flex-grow: 1; /* Allow text to take space */
-  text-align: right;
+  margin-right: auto; /* Pushes toggle/stop buttons right */
+  /* flex-grow: 1; */ /* REMOVED - Use margin auto */
+  text-align: left;
   transition: color 0.2s ease; /* Smooth color change */
+  white-space: nowrap; /* Prevent wrapping */
+  overflow: hidden; /* Hide overflow */
+  text-overflow: ellipsis; /* Add ellipsis if text too long */
 }
 
 /* Style for when basketball is detected */
@@ -165,8 +194,10 @@
   font-size: 11px;
   font-style: italic;
   color: #778899;
-  margin-left: 10px; /* Space from prediction */
   white-space: nowrap;
+  /* Remove margin if it causes issues, let flexbox handle spacing */
+  /* margin: 0 5px; */ /* REMOVED - Use gap */
+  flex-shrink: 0; /* Don't shrink */
 }
 
 /* --- Restricted Message --- */
@@ -176,4 +207,18 @@
   color: #FFB74D; /* Use warning color */
   text-align: center;
   padding: 20px;
-} 
+}
+
+/* Reposition preview container within flex */
+#adentify-preview {
+  /* order: 0; */ /* REMOVED */
+  /* width: 100%; */ /* REMOVED - Let content determine width */
+  /* Height will be determined by canvas aspect ratio */
+  margin-bottom: 8px; /* Add space below preview again */
+}
+
+/* Adjust main container flex for recording state */
+/* #adentify-ui.recording-active { */ /* REMOVE THIS RULE */
+  /* justify-content: flex-start; */
+  /* align-items: stretch; */
+/* } */ 
