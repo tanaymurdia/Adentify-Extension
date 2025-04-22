@@ -2,14 +2,13 @@
   "manifest_version": 3,
   "name": "Adentify",
   "version": "0.1.0",
-  "description": "Screen capture with overlay.",
+  "description": "Adentify screen capture with overlay.",
   "permissions": [
     "activeTab",
     "scripting",
     "storage",
     "tabCapture",
-    "tabs",
-    "downloads"
+    "tabs"
   ],
   "optional_permissions": [
     "desktopCapture",
@@ -45,10 +44,10 @@
         "offscreen.bundle.js",
         "launcher.html",
         "launcher.bundle.js",
-        "onnx_worker.bundle.js",
         "overlay.js",
         "overlay.css",
-        "icon128.png"
+        "icon128.png",
+        "onnx_worker.bundle.js"
       ],
       "matches": ["<all_urls>"]
     }

@@ -1,10 +1,75 @@
 #adentify-ui {
-  /* Basic styles for the container, if needed */
-  position: fixed;
+  /* Basic styles for the container, IF needed, but positioning is handled in JS */
 }
 
 #adentify-ui > div {
-  /* Styles for the placeholder or other UI elements */
+  /* Styles for direct children like toolbar, preview container etc. */
+  /* REMOVED: background-color (Handled by main container in JS) */
+  color: white;
+  padding: 8px;
+  margin-bottom: 5px;
+  border-radius: 4px;
   font-family: sans-serif;
-  background-color: rgba(0, 0, 0, 0.7);
+  font-size: 14px;
+}
+
+#adentify-ui canvas {
+  /* Styles for the canvas element */
+  display: block;
+  border: 1px solid #555;
+}
+
+/* Add specific styles for elements if needed */
+#adentify-toolbar {
+  /* Styles for the toolbar element */
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+
+#adentify-toolbar button,
+#adentify-toolbar select {
+  /* Styles for the button and select elements in the toolbar */
+  padding: 4px 8px;
+  cursor: pointer;
+  background-color: #4CAF50;
+  border: none;
+  color: white;
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+#adentify-toolbar button:hover,
+#adentify-toolbar select:hover {
+  /* Styles for the button and select elements when hovered */
+  background-color: #45a049;
+}
+
+#adentify-toolbar button:disabled,
+#adentify-toolbar select:disabled {
+  /* Styles for the button and select elements when disabled */
+  background-color: #cccccc;
+  color: #666666;
+  cursor: not-allowed;
+}
+
+#adentify-prediction {
+  /* Styles for the prediction text */
+  color: #00ff00; /* Bright Green */
+  font-weight: bold;
+  margin-left: 10px;
+}
+
+#adentify-restricted-msg {
+  /* Styles for the restricted message text */
+  color: #ff8c00; /* Dark Orange */
+  font-weight: bold;
+  margin-left: 10px;
+}
+
+#adentify-status {
+  /* Styles for the status text */
+  font-style: italic;
+  color: lightgray;
+  margin-left: 10px;
 } 

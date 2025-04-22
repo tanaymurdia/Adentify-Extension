@@ -11,7 +11,7 @@ const startCaptureButton = document.createElement('button');
 const stopCaptureButton = document.createElement('button');
 const statusMessage = document.createElement('span'); // For messages like "Recording..."
 const restrictedMessageDiv = document.createElement('div'); // New element for restriction message
-const classificationResultDiv = document.createElement('div'); // NEW: For classification result
+const predictionDisplay = document.createElement('div'); // New element for prediction
 
 // --- State ---
 let isCaptureActive = false;
@@ -58,7 +58,7 @@ uiContainer.appendChild(previewContainer);
 
 // --- NEW: Setup Restriction Message Div ---
 restrictedMessageDiv.id = 'adentify-restricted-msg';
-restrictedMessageDiv.textContent = 'Adentify cannot run on this page.';
+restrictedMessageDiv.textContent = 'Screen recording is not available on this page.';
 restrictedMessageDiv.style.padding = '10px';
 restrictedMessageDiv.style.textAlign = 'center';
 restrictedMessageDiv.style.fontStyle = 'italic';
@@ -66,16 +66,16 @@ restrictedMessageDiv.style.display = 'none'; // Hide initially
 restrictedMessageDiv.style.pointerEvents = 'auto'; // Allow interaction if needed later
 uiContainer.appendChild(restrictedMessageDiv);
 
-// --- NEW: Classification Result Area ---
-classificationResultDiv.id = 'adentify-classification-result';
-classificationResultDiv.style.marginTop = '5px'; // Space below toolbar
-classificationResultDiv.style.padding = '5px';
-classificationResultDiv.style.textAlign = 'center';
-classificationResultDiv.style.fontSize = '0.9em';
-classificationResultDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.3)'; // Slightly different background
-classificationResultDiv.style.borderRadius = '4px';
-classificationResultDiv.style.display = 'none'; // Initially hidden
-uiContainer.insertBefore(classificationResultDiv, previewContainer); // Add it before the preview
+// --- NEW: Setup Prediction Display Area ---
+predictionDisplay.id = 'adentify-prediction';
+predictionDisplay.style.marginTop = '5px';
+predictionDisplay.style.padding = '5px';
+predictionDisplay.style.textAlign = 'center';
+predictionDisplay.style.fontSize = '0.9em';
+predictionDisplay.style.borderTop = '1px dashed #888';
+predictionDisplay.style.display = 'none'; // Hide initially, show when recording
+predictionDisplay.textContent = 'Prediction: N/A';
+uiContainer.appendChild(predictionDisplay); // Add below preview
 
 // --- Setup Toolbar Elements ---
 function styleButton(button, text) {
@@ -159,8 +159,13 @@ function updateUIForCaptureState(isActive, error = null) {
     stopCaptureButton.style.display = isActive ? 'inline-block' : 'none';
     stopCaptureButton.disabled = false;
 
-    // Show/hide preview container (managed alongside toolbar visibility)
+    // Show/hide preview container
     previewContainer.style.display = isActive ? 'block' : 'none';
+    // Show/hide prediction display
+    predictionDisplay.style.display = isActive ? 'block' : 'none';
+    if (!isActive) {
+        predictionDisplay.textContent = 'Prediction: N/A'; // Reset on stop
+    }
 
     // Update status message
     if (isActive) {
@@ -171,13 +176,7 @@ function updateUIForCaptureState(isActive, error = null) {
         statusMessage.textContent = ''; // Clear status when idle
     }
 
-    // Clear classification result when stopping
-    if (!isActive) {
-        classificationResultDiv.textContent = '';
-        classificationResultDiv.style.display = 'none';
-    }
-
-    // Clear canvas if capture stops
+    // Clear preview canvas if capture stops
     if (!isActive) {
         previewCtx.fillStyle = '#333';
         previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
@@ -198,7 +197,6 @@ function toggleOverlay(show) {
         toolbar.style.display = 'none';
         previewContainer.style.display = 'none';
         restrictedMessageDiv.style.display = isOverlayVisible ? 'block' : 'none';
-        classificationResultDiv.style.display = 'none'; // Hide classification on restricted pages
     } else {
         // Page is not restricted
         restrictedMessageDiv.style.display = 'none';
@@ -206,13 +204,10 @@ function toggleOverlay(show) {
             // Show the toolbar and update its contents
             toolbar.style.display = 'flex'; // Explicitly show toolbar
             updateUIForCaptureState(isCaptureActive); // Update Start/Stop buttons and Preview
-            // Show classification only if active capture AND overlay is visible
-            classificationResultDiv.style.display = isCaptureActive ? 'block' : 'none';
         } else {
             // Hide toolbar and preview when overlay is hidden
             toolbar.style.display = 'none';
             previewContainer.style.display = 'none';
-            classificationResultDiv.style.display = 'none'; // Hide classification when overlay is hidden
         }
     }
 }
@@ -283,12 +278,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             drawPreviewFrame(message.payload.frameDataUrl);
         }
         break;
-    // --- NEW: Handle Classification Result ---
-    case 'classification-result':
-        // console.log("Message received: classification-result", message.payload);
-        if (isCaptureActive) {
-            classificationResultDiv.textContent = `Detected: ${message.payload || '...'}`;
-            classificationResultDiv.style.display = 'block'; // Ensure visible
+    // --- NEW: Handle ONNX Prediction ---
+    case 'onnxPrediction':
+        if (isCaptureActive && message.payload?.prediction) {
+            predictionDisplay.textContent = `Prediction: ${message.payload.prediction}`;
+        } else if (!isCaptureActive) {
+             predictionDisplay.textContent = 'Prediction: N/A'; // Reset if somehow received while inactive
         }
         break;
   }
@@ -303,11 +298,12 @@ const style = document.createElement('style');
 style.textContent = `
   #adentify-toolbar button:hover,
   #adentify-toolbar select:hover {
-    background-color: #444;
+    background: #777;
   }
    #adentify-toolbar button:disabled,
    #adentify-toolbar select:disabled {
-    opacity: 0.5;
+    background: #444;
+    color: #888;
     cursor: not-allowed;
    }
 `;
@@ -339,5 +335,4 @@ if (isPageRestricted) {
 } else {
     updateUIForCaptureState(false); // Setup initial button state
 }
-toggleOverlay(false); // Start hidden
-classificationResultDiv.style.display = 'none'; // Ensure hidden initially 
+toggleOverlay(false); // Start hidden 

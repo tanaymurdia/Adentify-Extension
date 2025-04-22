@@ -1,7 +1,7 @@
 {
-  "name": "adentify",
+  "name": "adentify-extension",
   "version": "1.0.0",
-  "description": "Screen capture with overlay.",
+  "description": "Adentify screen capture with overlay.",
   "main": "background.js",
   "scripts": {
     "build": "webpack --mode=production",
@@ -16,7 +16,7 @@
   "devDependencies": {
     "clean-webpack-plugin": "^4.0.0",
     "copy-webpack-plugin": "^13.0.0",
-    "onnxruntime-web": "^1.18.0",
+    "onnxruntime-web": "^1.21.1",
     "webpack": "^5.99.6",
     "webpack-cli": "^6.0.1"
   }

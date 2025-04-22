@@ -28,7 +28,16 @@ module.exports = {
         { from: 'launcher.html', to: '.' },
         { from: 'overlay.css', to: '.' },
         { from: 'icon128.png', to: '.' },
-        { from: 'overlay.js', to: '.' }
+        { from: 'overlay.js', to: '.' }, // This might not be needed if overlay logic is bundled? Check usage.
+        // Copy ONNX Runtime WASM files and the main library
+        { 
+          from: 'node_modules/onnxruntime-web/dist/*.wasm',
+          to: 'wasm/[name][ext]' // Copy WASM files to a 'wasm' subdirectory
+        },
+        {
+          from: 'node_modules/onnxruntime-web/dist/ort.min.js',
+          to: '.' // Copy the main library file to the root of dist
+        }
       ],
     }),
   ],
