@@ -8,6 +8,7 @@ let audioContext = null; // Keep document awake
 let oscillator = null; // Silent audio source
 let onnxWorker = null; // Reference to the worker
 let isStopping = false; // Flag to prevent multiple stop attempts
+let capturedTabId = null; // --- ADDED: Store the tab ID ---
 
 // Mime type configuration - adjust as needed
 const mimeType = 'video/webm;codecs=vp9';
@@ -43,13 +44,17 @@ async function startRecording(payload) {
   }
 
   // Reset stopping flag when starting a new recording
-  isStopping = false; 
+  isStopping = false;
 
-  if (!payload || !payload.streamId || !payload.captureType) {
-     console.error("Offscreen: Missing streamId or captureType in start payload.");
-     sendMessageToBackground({ type: 'offscreen-error', payload: { error: 'Missing start parameters' } });
+  // --- ADDED: Check for and store tabId ---
+  if (!payload || !payload.streamId || !payload.captureType || !payload.tabId) {
+     console.error("Offscreen: Missing streamId, captureType, or tabId in start payload.");
+     sendMessageToBackground({ type: 'offscreen-error', payload: { error: 'Missing start parameters (including tabId)' } });
      return;
   }
+  capturedTabId = payload.tabId; // Store the tabId
+  console.log(`Offscreen: Associated with tab ID: ${capturedTabId}`);
+  // --- END ADDITION ---
 
   const { streamId, captureType } = payload;
   const mediaSource = captureType === 'tab' ? 'tab' : 'desktop';
@@ -103,7 +108,12 @@ async function startRecording(payload) {
       }
       recorder = null;
 
+      // --- MOVED & REORDERED: Send message AFTER cleanup ---
       sendMessageToBackground({ type: 'offscreen-recording-stopped' });
+      console.log("Offscreen: Sent 'offscreen-recording-stopped' after cleanup.");
+      // --- END MOVE ---
+
+      // Close the offscreen document after a short delay
       setTimeout(() => window.close(), 500);
     };
 
@@ -145,7 +155,6 @@ async function stopRecording() {
   isStopping = true;
   console.log("Offscreen: Initiating stop sequence...");
 
-  stopPreview(); // Ensure preview loop is stopped first
   if (recorder && recorder.state !== 'inactive') {
     console.log("Offscreen: Stopping MediaRecorder...");
     recorder.stop(); // This triggers the 'onstop' event handler
@@ -342,13 +351,17 @@ function initializeWorker() {
         console.log("Offscreen: ONNX Worker created from:", workerUrl);
 
         onnxWorker.onmessage = (event) => {
-            if (event.data && event.data.type === 'predictionResult') {
-                // console.log("Offscreen: Received prediction from worker:", event.data.result);
-                // Relay prediction to background script
-                sendMessageToBackground({
+            if (event.data?.type === 'predictionResult') {
+                // Forward the prediction to the background script, renaming type to 'onnxPrediction'
+                 sendMessageToBackground({
                     type: 'onnxPrediction',
-                    payload: { prediction: event.data.result }
+                    payload: {
+                         prediction: event.data.result, // Use 'result' from worker message
+                         tabId: capturedTabId
+                         }
                 });
+            } else if (event.data?.type === 'status') {
+                console.log("Offscreen: ONNX Worker Status:", event.data.message);
             } else if (event.data && event.data.type === 'workerError') {
                  console.error("Offscreen: Received error message from worker:", event.data.error);
                  // Handle worker error appropriately (e.g., stop processing?)

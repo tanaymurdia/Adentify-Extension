@@ -7,7 +7,8 @@ let streamId = null; // Store the desktop stream ID from the launcher
 
 // --- Tab Capture Specific Variables ---
 let targetTabIdForCapture = null; // Store the tab ID to be captured
-// let recordedChunks = []; // REMOVED - No longer saving video data
+// --- Muting State Tracking (Optional but Recommended) ---
+let tabMutedState = {}; // Store the last known muted state { tabId: boolean }
 
 // Utility to send message to content script
 function sendMessageToContentScript(tabId, message) {
@@ -94,12 +95,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               }
               break;
           case 'offscreen-recording-stopped':
-              // processRecordedData(); // REMOVED - No longer processing/saving data
-              cleanupState();
+              // --- MODIFIED: Explicitly unmute tab on stop ---
               const tabToNotifyStop = targetTabIdForCapture || captureTabId;
+              console.log(`Background: Received offscreen-recording-stopped. Cleaning up state and unmuting tab: ${tabToNotifyStop}`);
+              
+              // Cleanup internal state first (this clears targetTabIdForCapture and captureTabId)
+              cleanupState(); 
+
+              // Now, unmute the tab (if we have an ID)
               if (tabToNotifyStop) {
+                  chrome.tabs.update(tabToNotifyStop, { muted: false })
+                    .then(() => {
+                        console.log(`Background: Successfully unmuted tab ${tabToNotifyStop} on stop.`);
+                        delete tabMutedState[tabToNotifyStop]; // Clear tracked mute state for this tab
+                    })
+                    .catch(error => {
+                        // This might happen if the tab was closed before stopping
+                        console.warn(`Background: Failed to unmute tab ${tabToNotifyStop} on stop (maybe it was closed?):`, error.message);
+                    });
+                  
+                  // Send inactive state message to content script
                   sendMessageToContentScript(tabToNotifyStop, { type: 'capture-state-inactive' });
+              } else {
+                  console.warn("Background: offscreen-recording-stopped received, but no target tab ID found to unmute or notify.");
               }
+              // --- END MODIFICATION ---
               break;
           case 'offscreen-error':
               const error = message.payload?.error || 'Unknown error';
@@ -130,15 +150,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               }
               break;
           case 'onnxPrediction':
-              const targetPredictionTab = targetTabIdForCapture || captureTabId;
-              if (isCaptureActive && targetPredictionTab && message.payload?.prediction) {
-                  sendMessageToContentScript(targetPredictionTab, {
+              // --- MODIFIED: Handle Muting ---
+              if (isCaptureActive && message.payload?.prediction && message.payload?.tabId) {
+                  const { prediction, tabId } = message.payload;
+                  // Forward prediction to content script (optional, keep if needed for UI)
+                  sendMessageToContentScript(tabId, {
                       type: 'onnxPrediction',
-                      payload: { prediction: message.payload.prediction }
+                      payload: { prediction: prediction }
                   });
+
+                  // Determine mute state based on prediction
+                  // --- UPDATED: Check against the correct string --- 
+                  const shouldBeMuted = prediction !== "Basketball Detected"; 
+
+                  // Check if the state actually needs changing
+                  if (tabMutedState[tabId] !== shouldBeMuted) {
+                     console.log(`Background: Updating mute state for tab ${tabId} to ${shouldBeMuted} based on prediction: ${prediction}`);
+                      chrome.tabs.update(tabId, { muted: shouldBeMuted })
+                        .then(() => {
+                            tabMutedState[tabId] = shouldBeMuted; // Update tracked state
+                        })
+                        .catch(error => {
+                            console.error(`Background: Failed to update mute state for tab ${tabId}:`, error);
+                            // Consider removing tabId from tabMutedState if update fails
+                            delete tabMutedState[tabId];
+                        });
+                  }
               } else {
-                 console.warn("Background: Received onnxPrediction but capture not active or no target tab.");
+                 console.warn("Background: Received onnxPrediction but missing data, capture not active, or no target tab.", {
+                    isActive: isCaptureActive,
+                    payload: message.payload
+                 });
               }
+              // --- END MODIFICATION ---
               break;
       }
       return false; // Indicate message handled, stop processing
@@ -360,56 +404,68 @@ async function setupOffscreenDocument() {
 // --- End Offscreen Document Management ---
 
 // 3. Start the actual media capture process
-async function startCapture() {
-    if (!streamId) {
-        console.error("Cannot start capture without a stream ID.");
-        if(captureTabId) {
-            sendMessageToContentScript(captureTabId, { type: 'capture-state-inactive', payload: { error: 'Missing stream ID for capture.' } });
+async function startCapture(streamId, captureType) {
+    if (!streamId || !captureType) {
+        console.error("Background: startCapture called without streamId or captureType.");
+        cleanupState(); // Clean up potentially inconsistent state
+        return;
+    }
+
+    console.log(`Background: Preparing to start ${captureType} capture with streamId: ${streamId}`);
+
+    // Determine the correct tab ID to pass to offscreen
+    const tabIdToPass = targetTabIdForCapture || captureTabId; // Prefer specific target, fallback to initiator
+    if (!tabIdToPass) {
+        console.error("Background: Cannot start capture - unable to determine target tab ID.");
+        cleanupState();
+        // Optionally notify the initiating tab if possible
+        if (captureTabId) {
+            sendMessageToContentScript(captureTabId, { type: 'capture-state-inactive', payload: { error: 'Failed to determine target tab ID for capture.' } });
         }
-        cleanupState();
         return;
     }
-    if (!captureTabId) {
-        console.error("Cannot start capture without a target tab ID.");
-        // This shouldn't happen if the flow is correct, but handle defensively.
-        cleanupState();
-        return;
-    }
-     if (isCaptureActive) {
-        console.warn("Start capture called but already active.");
-        return;
-    }
+     console.log(`Background: Offscreen document will be associated with tab ID: ${tabIdToPass}`);
 
-    console.log(`Starting capture process with stream ID: ${streamId} for tab ${captureTabId}`);
+    // Reset mute state tracking for the target tab
+    delete tabMutedState[tabIdToPass];
 
-    // Ensure the offscreen document is ready
-    await setupOffscreenDocument();
-    if (!(await hasOffscreenDocument())) {
-        console.error("Offscreen document setup failed or didn't complete in time.");
-         if (captureTabId) {
-             sendMessageToContentScript(captureTabId, { type: 'capture-state-inactive', payload: { error: 'Recorder setup failed.' } });
+    try {
+        // Check if an offscreen document already exists. Close it if it does.
+        // This handles cases where a previous capture might have failed uncleanly.
+        if (await hasOffscreenDocument(OFFSCREEN_DOCUMENT_PATH)) {
+            console.warn("Background: Found existing offscreen document before starting. Closing it.");
+            await closeOffscreenDocument();
+        }
+
+        // Create the offscreen document.
+        await setupOffscreenDocument();
+
+        console.log("Background: Sending 'start-recording' message to offscreen document.");
+        // Send the message to the offscreen document to start recording.
+        await chrome.runtime.sendMessage({
+          type: 'start-recording',
+          target: 'offscreen',
+          payload: {
+              streamId: streamId,
+              captureType: captureType,
+              // --- ADDED: Pass the tab ID ---
+              tabId: tabIdToPass
+              // --- END ADDITION ---
+          }
+        });
+        console.log("Background: 'start-recording' message sent.");
+        // State (like isCaptureActive) is set when 'offscreen-recording-started' is received back
+    } catch (error) {
+        console.error("Background: Error during startCapture:", error);
+        const errorMsg = error.message || String(error);
+        // Notify the content script of the failure
+        const tabToNotifyError = targetTabIdForCapture || captureTabId;
+         if(tabToNotifyError) {
+            sendMessageToContentScript(tabToNotifyError, { type: 'capture-state-inactive', payload: { error: `Failed to start capture: ${errorMsg}` } });
          }
-         cleanupState();
-        return;
+        await closeOffscreenDocument(); // Attempt cleanup
+        cleanupState();
     }
-
-    // Send streamId to the offscreen document to start recording
-    console.log("Sending streamId to offscreen document to start recording...");
-    chrome.runtime.sendMessage({
-        type: 'start-offscreen-recording',
-        target: 'offscreen',
-        payload: { streamId: streamId }
-    }).catch(err => {
-        console.error("Error sending start message to offscreen document:", err);
-        if(captureTabId) {
-            sendMessageToContentScript(captureTabId, { type: 'capture-state-inactive', payload: { error: `Failed to communicate with recorder: ${err.message}` } });
-        }
-        cleanupState(); // Clean up if sending message fails
-    });
-
-    // Note: Actual state `isCaptureActive = true` and sending `capture-state-active`
-    // will now happen *after* we receive confirmation ('offscreen-recording-started')
-    // from the offscreen document. This makes the UI state more accurate.
 }
 
 // 4. Stop the capture
@@ -439,13 +495,15 @@ function stopCapture() {
 
 // Utility function to reset state variables
 function cleanupState() {
-    console.log("Cleaning up background state.");
+    console.log("Background: Cleaning up state.");
     isCaptureActive = false;
-    // recorder = null; // Removed
     streamId = null;
-    targetTabIdForCapture = null;
+    captureTabId = null; // Clear the initiating tab
+    targetTabIdForCapture = null; // Clear the specific target tab
     // recordedChunks = []; // REMOVED
-    // captureTabId is intentionally kept
+    // Keep tabMutedState - we might want to restore mute state later?
+    // Or clear it: tabMutedState = {};
+    console.log("Background: State cleanup complete.");
 }
 
 // Function to close the offscreen document (optional)
@@ -475,84 +533,56 @@ console.log("Background script fully initialized and event listeners registered.
 
 // --- NEW: Start Tab Capture Process ---
 async function startTabCapture() {
+    if (isCaptureActive) {
+        console.warn("Background: Tab capture requested, but already active.");
+        return; // Or send error response if called via message listener
+    }
     if (!targetTabIdForCapture) {
-        console.error("Target tab ID for capture is not set.");
-        return;
+         console.error("Background: Cannot start tab capture, targetTabIdForCapture is not set.");
+         return;
     }
-    // Ensure offscreen document is ready
-    const offscreenReady = await setupOffscreenDocument();
-    if (!offscreenReady) {
-        console.error("Failed to set up offscreen document for tab capture.");
-        return; // setupOffscreenDocument should have handled error reporting
-    }
+
+    console.log(`Background: Attempting chrome.tabCapture.getMediaStreamId for tab ${targetTabIdForCapture}`);
 
     try {
-        console.log(`Requesting stream ID for tab: ${targetTabIdForCapture}`);
-        // Get the stream ID for the target tab
-        const tabStreamId = await chrome.tabCapture.getMediaStreamId({
-            targetTabId: targetTabIdForCapture
+        // Get a media stream ID for the target tab
+        const streamId = await chrome.tabCapture.getMediaStreamId({
+          targetTabId: targetTabIdForCapture
         });
 
-        if (!tabStreamId) {
-             console.error("Failed to get stream ID for tab capture.");
-             throw new Error("Could not get tab media stream ID.");
+        if (!streamId) {
+            throw new Error("Failed to get media stream ID (returned null/undefined).");
         }
 
-        console.log(`Obtained tab stream ID: ${tabStreamId}. Sending to offscreen doc.`);
-        // Send message to offscreen document to start recording with this stream ID
-        chrome.runtime.sendMessage({
-            type: 'start-recording',
-            target: 'offscreen', // Identify the target recipient
-            payload: {
-                captureType: 'tab', // Specify the type
-                streamId: tabStreamId, // The crucial ID
-                tabId: targetTabIdForCapture // Pass the tab ID for context if needed
-                // Add any other config: quality, audio settings etc.
-            }
-        });
-        // State change (isCaptureActive = true) will happen upon confirmation ('offscreen-recording-started')
+        console.log(`Background: Obtained media stream ID: ${streamId} for tab ${targetTabIdForCapture}`);
+        // Now start the capture process using the obtained stream ID
+        await startCapture(streamId, 'tab'); // Pass streamId and type
 
     } catch (error) {
-        console.error("Error during tab capture startup:", error);
-        const errorTabToNotify = targetTabIdForCapture || captureTabId;
-        if (errorTabToNotify) {
-            sendMessageToContentScript(errorTabToNotify, {
-                type: 'capture-state-inactive',
-                payload: { error: `Tab capture failed: ${error.message}` }
-            });
-        }
+        console.error("Background: Error starting tab capture:", error);
+         const errorMsg = error.message || String(error);
+        // Notify the content script
+        sendMessageToContentScript(targetTabIdForCapture, { type: 'capture-state-inactive', payload: { error: `Failed to start tab capture: ${errorMsg}` } });
         cleanupState();
-        await closeOffscreenDocument(); // Attempt cleanup
     }
 }
 
 // --- MODIFIED: Start Desktop/Window Capture Process ---
 async function startDesktopCapture(desktopStreamId) {
-    if (!desktopStreamId) {
-        console.error("Cannot start desktop capture without a stream ID.");
-        if(captureTabId) { // Use the original initiating tab for error reporting
-            sendMessageToContentScript(captureTabId, { type: 'capture-state-inactive', payload: { error: 'Missing stream ID for capture.' } });
-        }
-        cleanupState();
+    if (isCaptureActive) {
+        console.warn("Background: Desktop capture requested, but already active.");
         return;
     }
-    // Ensure offscreen document is ready
-    const offscreenReady = await setupOffscreenDocument();
-     if (!offscreenReady) {
-        console.error("Failed to set up offscreen document for desktop capture.");
-        return; // Error reported by setupOffscreenDocument
-    }
+     if (!desktopStreamId) {
+         console.error("Background: startDesktopCapture called without desktopStreamId.");
+         return;
+     }
+     if (!captureTabId) {
+         console.warn("Background: Starting desktop capture, but initiating tab ID (captureTabId) is unknown.");
+         // Proceeding, but offscreen document might not get the correct tabId if targetTabIdForCapture is also null
+     }
 
-    console.log(`Sending desktop stream ID (${desktopStreamId}) to offscreen document.`);
-    // Send message to offscreen document to start recording
-    chrome.runtime.sendMessage({
-        type: 'start-recording',
-        target: 'offscreen',
-        payload: {
-            captureType: 'desktop', // Specify the type
-            streamId: desktopStreamId
-            // Add any other config: quality, audio settings etc.
-        }
-    });
-     // State change (isCaptureActive = true) will happen upon confirmation ('offscreen-recording-started')
+    console.log(`Background: Starting desktop capture with stream ID: ${desktopStreamId}`);
+    // Start the capture process using the provided stream ID
+    await startCapture(desktopStreamId, 'desktop'); // Pass streamId and type
 }
