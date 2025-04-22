@@ -5,60 +5,138 @@ importScripts('ort.min.js');
 
 // --- Global variables ---
 let ortSession = null;
-const modelPath = "dummy_model.onnx"; // <<<--- IMPORTANT: Update this path if your model is elsewhere
+const modelPath = "models/hypernetwork_basketball_classifier_quantized.onnx"; // <<<--- Using the actual model path
+const TARGET_WIDTH = 224;
+const TARGET_HEIGHT = 224;
 
 // --- Initialize ONNX Runtime and Load Model ---
 async function loadModel() {
     console.log("ONNX Worker: Initializing ONNX Runtime...");
     try {
-        // Point to locally copied WASM files within the extension's dist/wasm/ directory
+        // Point to locally copied WASM files
         ort.env.wasm.wasmPaths = './wasm/'; 
-        console.log("ONNX Worker: Runtime initialized. Skipping model load (no model path provided).");
-
-        // >>>>> Model Loading Skipped <<<<<
-        // console.log(`ONNX Worker: Attempting to load model from: ${modelPath}`);
-        // ortSession = await ort.InferenceSession.create(modelPath);
-        // console.log("ONNX Worker: Model loaded successfully!");
-        // >>>>> Model Loading Skipped <<<<<
-
-        ortSession = null; // Ensure session remains null as no model is loaded
+        
+        // ---> Force basic non-threaded, non-SIMD WASM backend <--- 
+        ort.env.wasm.numThreads = 1;
+        ort.env.wasm.simd = false; // Explicitly disable SIMD
+        console.log("ONNX Worker: Forcing single-threaded, non-SIMD WASM backend.");
+        
+        console.log(`ONNX Worker: Attempting to load model from: ${modelPath}`);
+        ortSession = await ort.InferenceSession.create(modelPath, {
+            executionProviders: ['wasm'], // Force only WASM provider
+            graphOptimizationLevel: 'all' // Optional: Keep optimization
+        });
+        console.log("ONNX Worker: Model loaded successfully!");
+        console.log("Model inputs:", ortSession.inputNames);
+        console.log("Model outputs:", ortSession.outputNames);
 
     } catch (error) {
-        console.error("ONNX Worker: Error during ONNX Runtime initialization:", error);
-        self.postMessage({ type: 'workerError', error: `Failed to initialize ONNX runtime: ${error.message}` });
-        ortSession = null;
+        console.error(`ONNX Worker: Error loading ONNX model (${modelPath}):`, error);
+        self.postMessage({ type: 'workerError', error: `Failed to load model: ${error.message}` });
+        ortSession = null; // Ensure session is null if loading failed
+    }
+}
+
+// --- Preprocessing Function ---
+async function preprocessImageData(imageData) {
+    console.time("preprocess"); // Start timing preprocessing
+    try {
+        // 1. Create ImageBitmap for efficient resizing
+        const bitmap = await createImageBitmap(imageData);
+
+        // 2. Use OffscreenCanvas for resizing
+        const offscreenCanvas = new OffscreenCanvas(TARGET_WIDTH, TARGET_HEIGHT);
+        const ctx = offscreenCanvas.getContext('2d');
+        if (!ctx) {
+            throw new Error("Failed to get 2D context from OffscreenCanvas");
+        }
+
+        // 3. Draw (and resize) the bitmap onto the canvas
+        ctx.drawImage(bitmap, 0, 0, TARGET_WIDTH, TARGET_HEIGHT);
+        // Close the bitmap to free memory
+        bitmap.close(); 
+
+        // 4. Get the resized image data
+        const resizedImageData = ctx.getImageData(0, 0, TARGET_WIDTH, TARGET_HEIGHT);
+
+        // 5. Prepare Float32Array for ONNX input (Batch=1, H, W, C=3)
+        const tensorData = new Float32Array(1 * TARGET_HEIGHT * TARGET_WIDTH * 3);
+        const data = resizedImageData.data; // RGBA array
+
+        // 6. Iterate through RGBA data and copy RGB to Float32Array (maintaining 0-255 range)
+        let tensorIndex = 0;
+        for (let i = 0; i < data.length; i += 4) {
+            tensorData[tensorIndex++] = data[i];     // R
+            tensorData[tensorIndex++] = data[i + 1]; // G
+            tensorData[tensorIndex++] = data[i + 2]; // B
+            // Skip A (data[i + 3])
+        }
+
+        // 7. Create the ONNX Tensor
+        const dims = [1, TARGET_HEIGHT, TARGET_WIDTH, 3]; // N H W C format
+        const tensor = new ort.Tensor('float32', tensorData, dims);
+        console.timeEnd("preprocess"); // End timing preprocessing
+        return tensor;
+
+    } catch (error) {
+        console.error("ONNX Worker: Error during preprocessing:", error);
+        console.timeEnd("preprocess"); // Ensure timer ends on error
+        self.postMessage({ type: 'workerError', error: `Preprocessing error: ${error.message}` });
+        return null;
     }
 }
 
 // --- Message Handler ---
-self.onmessage = async (event) => { // Make handler async if using await inside
+self.onmessage = async (event) => {
     if (!ortSession) {
-        console.warn("ONNX Worker: Received message, but model is not loaded. Ignoring.");
-        return; // Don't process if model isn't ready
+        // console.warn("ONNX Worker: Received message, but model is not loaded. Ignoring."); // Can be noisy
+        return; 
     }
 
     if (event.data && event.data.type === 'processFrame') {
-        // console.log("ONNX Worker: Received frame data.");
+        // console.log("ONNX Worker: Received frame data."); // Can be noisy
+        console.time("inference_cycle"); // Time the full cycle
 
-        // --- TODO: Add actual ONNX inference logic here ---
-        // 1. Preprocess event.data.frameData (ImageData) into the expected tensor format
-        // 2. Create input feeds object: const feeds = { [ortSession.inputNames[0]]: tensorData };
-        // 3. Run inference: const results = await ortSession.run(feeds);
-        // 4. Postprocess results[ortSession.outputNames[0]] to get prediction
-        // 5. Send prediction back
+        // 1. Preprocess
+        const tensor = await preprocessImageData(event.data.frameData);
+        if (!tensor) return; // Preprocessing failed
 
-        // Simulate classification result for now
-        const isBasketball = Math.random() > 0.5;
-        const prediction = isBasketball ? 'Basketball Detected (Simulated)' : 'No Basketball (Simulated)';
+        try {
+            // 2. Prepare feeds
+            const inputName = ortSession.inputNames[0];
+            const feeds = {};
+            feeds[inputName] = tensor;
+            // console.log(`ONNX Worker: Running inference with input name: ${inputName}`); // Can be noisy
 
-        // console.log(`ONNX Worker: Prediction - ${prediction}`);
+            // 3. Run inference
+            console.time("inference_run");
+            const results = await ortSession.run(feeds);
+            console.timeEnd("inference_run");
 
-        // Send result back to the offscreen script
-        self.postMessage({
-            type: 'predictionResult',
-            result: prediction
-        });
-    } else {
+            // 4. Postprocess results
+            const outputName = ortSession.outputNames[0];
+            const outputTensor = results[outputName];
+            
+            // Output shape is likely [1, 1], data is Float32Array with one element
+            const score = outputTensor.data[0]; 
+            const isBasketball = score > 0.5; 
+            const prediction = isBasketball ? "Basketball Detected" : "No Basketball";
+            // console.log(`Score: ${score.toFixed(4)}, Prediction: ${prediction}`); // Log score and result
+
+            // 5. Send prediction back
+            self.postMessage({
+                type: 'predictionResult',
+                result: prediction
+            });
+            console.timeEnd("inference_cycle"); // End full cycle timing
+
+        } catch (error) {
+            console.error("ONNX Worker: Error during inference or postprocessing:", error);
+            self.postMessage({ type: 'workerError', error: `Inference error: ${error.message}` });
+            console.timeEnd("inference_cycle"); // Ensure timer ends on error
+        }
+
+    } else if (event.data) { // Avoid warning for potentially empty/internal messages
         console.warn("ONNX Worker: Received unknown message format:", event.data);
     }
 };
@@ -66,10 +144,9 @@ self.onmessage = async (event) => { // Make handler async if using await inside
 // --- Error Handler ---
 self.onerror = (error) => {
     console.error("ONNX Worker: Uncaught error occurred:", error);
-    // Optionally notify the main thread about the error
     self.postMessage({ type: 'workerError', error: `Worker uncaught error: ${error.message}` });
 };
 
 // --- Initial Setup ---
 console.log("ONNX Worker: Ready. Starting model load...");
-loadModel(); // Start loading the model immediately when the worker is ready 
+loadModel(); // Start loading the actual model 

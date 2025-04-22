@@ -35,8 +35,16 @@ module.exports = {
           to: 'wasm/[name][ext]' // Copy WASM files to a 'wasm' subdirectory
         },
         {
+          from: 'node_modules/onnxruntime-web/dist/*.jsep.mjs',
+          to: 'wasm/[name][ext]' // Copy JSEP helper to the same wasm directory
+        },
+        {
           from: 'node_modules/onnxruntime-web/dist/ort.min.js',
           to: '.' // Copy the main library file to the root of dist
+        },
+        {
+          from: 'models/hypernetwork_basketball_classifier_quantized.onnx',
+          to: 'models/[name][ext]' // Copy to dist/models/
         }
       ],
     }),
