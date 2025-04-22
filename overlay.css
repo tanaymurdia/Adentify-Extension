@@ -1,75 +1,179 @@
+/* --- Reset/Base --- */
+* {
+  box-sizing: border-box;
+}
+
+/* --- Helper Classes --- */
+.hidden {
+  display: none !important;
+}
+
+/* --- Main Container --- */
 #adentify-ui {
-  /* Basic styles for the container, IF needed, but positioning is handled in JS */
-}
-
-#adentify-ui > div {
-  /* Styles for direct children like toolbar, preview container etc. */
-  /* REMOVED: background-color (Handled by main container in JS) */
-  color: white;
-  padding: 8px;
-  margin-bottom: 5px;
-  border-radius: 4px;
+  position: fixed;
+  /* Initial position set by JS transform */
+  z-index: 2147483647;
+  /* min-width: 220px; */ /* REMOVED to avoid potential box model issues */
+  /* min-height: 120px; */ /* REMOVED to avoid potential box model issues */
+  padding: 25px; /* Padding to keep content away from corner buttons */
+  background-color: #1a1f2c; /* Dark blueish background */
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); /* Subtle shadow */
+  color: #e0e0e0; /* Light text */
   font-family: sans-serif;
-  font-size: 14px;
-}
+  overflow: hidden; /* Ensure corner elements stay within bounds */
 
-#adentify-ui canvas {
-  /* Styles for the canvas element */
-  display: block;
-  border: 1px solid #555;
-}
-
-/* Add specific styles for elements if needed */
-#adentify-toolbar {
-  /* Styles for the toolbar element */
+  /* Flex settings for centering initial content */
   display: flex;
-  gap: 5px;
+  flex-direction: column;
+  justify-content: center;
   align-items: center;
 }
 
-#adentify-toolbar button,
-#adentify-toolbar select {
-  /* Styles for the button and select elements in the toolbar */
-  padding: 4px 8px;
-  cursor: pointer;
-  background-color: #4CAF50;
+/* --- Corner Buttons --- */
+#adentify-close-btn,
+#adentify-drag-handle {
+  position: absolute;
+  color: #8899a6; /* Muted color */
+  background: none;
   border: none;
-  color: white;
-  border-radius: 3px;
-  font-size: 12px;
+  font-size: 16px; /* Reduced font size */
+  padding: 6px; /* Adjusted click area */
+  cursor: pointer;
+  transition: color 0.2s ease;
+  z-index: 10; /* Above other content */
 }
 
-#adentify-toolbar button:hover,
-#adentify-toolbar select:hover {
-  /* Styles for the button and select elements when hovered */
-  background-color: #45a049;
+#adentify-close-btn:hover,
+#adentify-drag-handle:hover {
+  color: #e0e0e0;
 }
 
-#adentify-toolbar button:disabled,
-#adentify-toolbar select:disabled {
-  /* Styles for the button and select elements when disabled */
-  background-color: #cccccc;
-  color: #666666;
-  cursor: not-allowed;
+#adentify-close-btn {
+  top: 0;
+  right: 0;
+}
+
+#adentify-drag-handle {
+  bottom: 0;
+  right: 0;
+  cursor: move;
+  transform: none; /* Remove rotation */
+  font-size: 18px; /* Reduced handle font size slightly */
+}
+
+/* --- Action Buttons (Start/Stop) --- */
+#start-capture-btn,
+#stop-capture-btn {
+  background-color: #38444d; /* Darker gray */
+  color: #e0e0e0;
+  border: 1px solid #4a5861;
+  padding: 6px 14px; /* Reduced padding */
+  border-radius: 18px; /* Slightly smaller radius */
+  font-size: 13px; /* Reduced font size */
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  box-shadow: none; /* No initial accent */
+}
+
+#start-capture-btn:hover,
+#stop-capture-btn:hover {
+  background-color: #4a5861;
+  border-color: #5a6871;
+  color: #fff;
+  /* Glowing blue accent */
+  box-shadow: 0 0 8px 2px rgba(0, 191, 255, 0.6), /* Outer glow */
+              0 0 5px 1px rgba(0, 191, 255, 0.5) inset; /* Inner glow */
+}
+
+#start-capture-btn:active,
+#stop-capture-btn:active {
+  background-color: #5a6871;
+  transform: scale(0.98);
+  box-shadow: 0 0 6px 1px rgba(0, 191, 255, 0.5), /* Slightly dimmer glow */
+              0 0 4px 1px rgba(0, 191, 255, 0.4) inset;
+}
+
+#start-capture-btn:disabled,
+#stop-capture-btn:disabled {
+  background-color: #303a40 !important;
+  border-color: #404a50 !important;
+  color: #778899 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* --- Recording State Elements --- */
+#adentify-preview {
+  /* width: 100%; */ /* REMOVED - Let content determine width */
+  /* Height will be determined by canvas aspect ratio */
+  margin-bottom: 10px; /* Space below preview */
+}
+
+/* NEW rule for the canvas wrapper */
+#adentify-canvas-wrapper {
+  border-radius: 4px;
+  border: 1px solid #38444d; /* Match button border */
+  /* Ensure wrapper doesn't add extra space */
+  line-height: 0; /* Prevents potential extra space below canvas */
+  overflow: hidden; /* Ensures canvas stays within rounded corners */
+  transition: border-color 0.2s ease; /* Smooth transition for border hide */
+}
+
+/* Hide border during recording */
+#adentify-ui.recording-active #adentify-canvas-wrapper {
+  border-color: transparent;
+}
+
+#adentify-preview-canvas {
+  display: block;
+  max-width: 100%; /* Ensure canvas doesn't overflow container */
+  height: auto; /* Maintain aspect ratio */
+  /* border-radius: 4px; */ /* REMOVED - Applied to wrapper */
+  /* border: 1px solid #38444d; */ /* REMOVED - Applied to wrapper */
+}
+
+#adentify-recording-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  /* width: 100%; */ /* REMOVED - Let flex items determine width */
+  padding: 0 5px; /* Small padding for alignment */
+  align-self: stretch; /* Ensure it stretches to container width if needed */
 }
 
 #adentify-prediction {
-  /* Styles for the prediction text */
-  color: #00ff00; /* Bright Green */
-  font-weight: bold;
-  margin-left: 10px;
+  font-size: 12px; /* Reduced font size */
+  font-weight: normal;
+  color: #a0b0c0; /* Muted text color - Default for 'No Basketball' */
+  margin-left: 8px; /* Slightly reduced space */
+  flex-grow: 1; /* Allow text to take space */
+  text-align: right;
+  transition: color 0.2s ease; /* Smooth color change */
 }
 
-#adentify-restricted-msg {
-  /* Styles for the restricted message text */
-  color: #ff8c00; /* Dark Orange */
-  font-weight: bold;
-  margin-left: 10px;
+/* Style for when basketball is detected */
+#adentify-prediction.prediction-basketball {
+  color: #00bfff; /* Blue accent color */
+  font-weight: bold; /* Make it stand out slightly */
 }
 
+/* --- Status Message --- */
 #adentify-status {
-  /* Styles for the status text */
+  font-size: 11px;
   font-style: italic;
-  color: lightgray;
-  margin-left: 10px;
+  color: #778899;
+  margin-left: 10px; /* Space from prediction */
+  white-space: nowrap;
+}
+
+/* --- Restricted Message --- */
+#adentify-restricted-msg {
+  font-size: 14px;
+  font-style: italic;
+  color: #FFB74D; /* Use warning color */
+  text-align: center;
+  padding: 20px;
 } 

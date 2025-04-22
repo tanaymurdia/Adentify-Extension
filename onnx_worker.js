@@ -128,6 +128,11 @@ self.onmessage = async (event) => {
                 type: 'predictionResult',
                 result: prediction
             });
+
+            // *** ADD LOGGING HERE ***
+            console.log('ONNX Raw Output:', results);
+            console.log('ONNX Output Tensor Data:', outputTensor.data);
+
             console.timeEnd("inference_cycle"); // End full cycle timing
 
         } catch (error) {

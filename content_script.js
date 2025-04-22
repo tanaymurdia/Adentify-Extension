@@ -1,338 +1,341 @@
-console.log("Content script loaded.");
-
-// --- UI Elements ---
-const uiContainer = document.createElement('div');
-const toolbar = document.createElement('div');
-const previewContainer = document.createElement('div'); // Container for preview
-const previewCanvas = document.createElement('canvas'); // Canvas for showing preview
-const previewCtx = previewCanvas.getContext('2d');
-const captureTypeSelect = document.createElement('select'); // Dropdown for capture type
-const startCaptureButton = document.createElement('button');
-const stopCaptureButton = document.createElement('button');
-const statusMessage = document.createElement('span'); // For messages like "Recording..."
-const restrictedMessageDiv = document.createElement('div'); // New element for restriction message
-const predictionDisplay = document.createElement('div'); // New element for prediction
-
-// --- State ---
-let isCaptureActive = false;
-let isOverlayVisible = false;
-let isPageRestricted = false; // New state variable
-let lastFrameTime = 0;
-const FRAME_RATE_LIMIT = 15; // Target FPS for preview (limit requests)
-
-// --- Setup UI Container ---
-uiContainer.id = 'adentify-ui';
-uiContainer.style.position = 'fixed';
-uiContainer.style.bottom = '20px'; // Position toolbar/preview area
-uiContainer.style.right = '20px';
-uiContainer.style.zIndex = '999999';
-uiContainer.style.pointerEvents = 'none'; // Pass clicks through container by default
-uiContainer.style.display = 'none'; // Keep it initially hidden
-uiContainer.style.background = 'rgba(40, 40, 40, 0.85)';
-uiContainer.style.color = 'white';
-uiContainer.style.padding = '10px';
-uiContainer.style.borderRadius = '8px';
-uiContainer.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.3)';
-document.body.appendChild(uiContainer);
-
-// --- Setup Toolbar ---
-toolbar.id = 'adentify-toolbar';
-toolbar.style.display = 'flex';
-toolbar.style.gap = '10px';
-toolbar.style.alignItems = 'center';
-toolbar.style.pointerEvents = 'auto'; // Toolbar elements are interactive
-uiContainer.appendChild(toolbar);
-
-// --- Setup Preview Area ---
-previewContainer.id = 'adentify-preview';
-previewContainer.style.marginTop = '10px';
-previewContainer.style.display = 'none'; // Hidden until recording starts
-previewContainer.style.pointerEvents = 'none'; // Preview itself is not interactive
-previewCanvas.id = 'adentify-preview-canvas';
-previewCanvas.width = 320; // Example preview size
-previewCanvas.height = 180;
-previewCanvas.style.border = '1px solid #666';
-previewCanvas.style.display = 'block'; // Canvas is block element
-previewContainer.appendChild(previewCanvas);
-uiContainer.appendChild(previewContainer);
-
-// --- NEW: Setup Restriction Message Div ---
-restrictedMessageDiv.id = 'adentify-restricted-msg';
-restrictedMessageDiv.textContent = 'Screen recording is not available on this page.';
-restrictedMessageDiv.style.padding = '10px';
-restrictedMessageDiv.style.textAlign = 'center';
-restrictedMessageDiv.style.fontStyle = 'italic';
-restrictedMessageDiv.style.display = 'none'; // Hide initially
-restrictedMessageDiv.style.pointerEvents = 'auto'; // Allow interaction if needed later
-uiContainer.appendChild(restrictedMessageDiv);
-
-// --- NEW: Setup Prediction Display Area ---
-predictionDisplay.id = 'adentify-prediction';
-predictionDisplay.style.marginTop = '5px';
-predictionDisplay.style.padding = '5px';
-predictionDisplay.style.textAlign = 'center';
-predictionDisplay.style.fontSize = '0.9em';
-predictionDisplay.style.borderTop = '1px dashed #888';
-predictionDisplay.style.display = 'none'; // Hide initially, show when recording
-predictionDisplay.textContent = 'Prediction: N/A';
-uiContainer.appendChild(predictionDisplay); // Add below preview
-
-// --- Setup Toolbar Elements ---
-function styleButton(button, text) {
-    button.textContent = text;
-    button.style.background = '#555';
-    button.style.color = 'white';
-    button.style.border = 'none';
-    button.style.padding = '5px 10px';
-    button.style.borderRadius = '5px';
-    button.style.cursor = 'pointer';
-    button.style.fontFamily = 'sans-serif';
-}
-
-// Capture Type Dropdown
-const options = [
-    { value: 'tab', text: 'Current Tab' },
-    { value: 'desktop', text: 'Desktop/Window' }
-];
-options.forEach(optData => {
-    const option = document.createElement('option');
-    option.value = optData.value;
-    option.textContent = optData.text;
-    captureTypeSelect.appendChild(option);
-});
-captureTypeSelect.id = 'capture-type-select';
-captureTypeSelect.style.background = '#555';
-captureTypeSelect.style.color = 'white';
-captureTypeSelect.style.border = 'none';
-captureTypeSelect.style.padding = '5px';
-captureTypeSelect.style.borderRadius = '5px';
-toolbar.appendChild(captureTypeSelect);
-
-// Start Capture Button
-styleButton(startCaptureButton, 'Start');
-startCaptureButton.id = 'start-capture-btn';
-startCaptureButton.addEventListener('click', () => {
-    const selectedType = captureTypeSelect.value;
-    console.log(`Start Capture clicked, type: ${selectedType}`);
-    if (selectedType === 'tab') {
-        chrome.runtime.sendMessage({ type: 'request-start-tab-capture' });
-    } else {
-        // Request background script to open the desktop/window picker
-        chrome.runtime.sendMessage({ type: 'request-start-capture' });
-    }
-    // Disable UI temporarily while starting
-    startCaptureButton.disabled = true;
-    captureTypeSelect.disabled = true;
-    statusMessage.textContent = 'Starting...';
-});
-toolbar.appendChild(startCaptureButton);
-
-// Stop Capture Button
-styleButton(stopCaptureButton, 'Stop');
-stopCaptureButton.id = 'stop-capture-btn';
-stopCaptureButton.addEventListener('click', () => {
-    console.log("Stop Capture button clicked");
-    chrome.runtime.sendMessage({ type: 'request-stop-capture' });
-    // Disable button temporarily
-    stopCaptureButton.disabled = true;
-    statusMessage.textContent = 'Stopping...';
-});
-toolbar.appendChild(stopCaptureButton);
-
-// Status Message Area
-statusMessage.id = 'adentify-status';
-statusMessage.style.marginLeft = '10px';
-statusMessage.style.fontStyle = 'italic';
-toolbar.appendChild(statusMessage);
-
-// --- Update UI based on capture state ---
-function updateUIForCaptureState(isActive, error = null) {
-    isCaptureActive = isActive;
-    console.log(`Updating UI - Capture Active: ${isCaptureActive}, Error: ${error}`);
-
-    // Toggle visibility/enabled state WITHIN the toolbar
-    startCaptureButton.style.display = isActive ? 'none' : 'inline-block';
-    startCaptureButton.disabled = false;
-    captureTypeSelect.style.display = isActive ? 'none' : 'inline-block';
-    captureTypeSelect.disabled = false;
-
-    stopCaptureButton.style.display = isActive ? 'inline-block' : 'none';
-    stopCaptureButton.disabled = false;
-
-    // Show/hide preview container
-    previewContainer.style.display = isActive ? 'block' : 'none';
-    // Show/hide prediction display
-    predictionDisplay.style.display = isActive ? 'block' : 'none';
-    if (!isActive) {
-        predictionDisplay.textContent = 'Prediction: N/A'; // Reset on stop
-    }
-
-    // Update status message
-    if (isActive) {
-        statusMessage.textContent = 'Recording...';
-    } else if (error) {
-        statusMessage.textContent = `Error: ${error}`;
-    } else {
-        statusMessage.textContent = ''; // Clear status when idle
-    }
-
-    // Clear preview canvas if capture stops
-    if (!isActive) {
-        previewCtx.fillStyle = '#333';
-        previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
-    }
-}
-
-// --- Toggle Overlay Visibility ---
-function toggleOverlay(show) {
-    if (show === undefined) {
-        isOverlayVisible = !isOverlayVisible;
-    } else {
-        isOverlayVisible = show;
-    }
-    uiContainer.style.display = isOverlayVisible ? 'block' : 'none';
-    console.log(`Overlay visibility set to: ${isOverlayVisible}`);
-
-    if (isPageRestricted) {
-        toolbar.style.display = 'none';
-        previewContainer.style.display = 'none';
-        restrictedMessageDiv.style.display = isOverlayVisible ? 'block' : 'none';
-    } else {
-        // Page is not restricted
-        restrictedMessageDiv.style.display = 'none';
-        if (isOverlayVisible) {
-            // Show the toolbar and update its contents
-            toolbar.style.display = 'flex'; // Explicitly show toolbar
-            updateUIForCaptureState(isCaptureActive); // Update Start/Stop buttons and Preview
-        } else {
-            // Hide toolbar and preview when overlay is hidden
-            toolbar.style.display = 'none';
-            previewContainer.style.display = 'none';
-        }
-    }
-}
-
-// --- Handle Preview Frame ---
-function drawPreviewFrame(dataUrl) {
-    const now = performance.now();
-    // Throttle drawing to avoid blocking the main thread too much
-    if (now - lastFrameTime < (1000 / FRAME_RATE_LIMIT)) {
-        return; // Skip frame
-    }
-    lastFrameTime = now;
-
-    const img = new Image();
-    img.onload = () => {
-        // Scale image to fit canvas while maintaining aspect ratio
-        const hRatio = previewCanvas.width / img.width;
-        const vRatio = previewCanvas.height / img.height;
-        const ratio = Math.min(hRatio, vRatio);
-        const centerShift_x = (previewCanvas.width - img.width * ratio) / 2;
-        const centerShift_y = (previewCanvas.height - img.height * ratio) / 2;
-
-        previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-        previewCtx.drawImage(img, 0, 0, img.width, img.height,
-                             centerShift_x, centerShift_y, img.width * ratio, img.height * ratio);
-    };
-    img.onerror = () => {
-        console.error("Error loading preview frame image");
-        // Optionally draw an error indicator on the canvas
-        previewCtx.fillStyle = 'red';
-        previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
-    };
-    img.src = dataUrl;
-}
-
-// --- Add log before listener ---
-console.log("Content script: Attempting to add message listener...");
-
-// --- Message Listener from Background ---
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // --- Add log inside listener ---
-  console.log("Content script: Received message type:", message.type);
-
-  let needsResponse = false;
-  switch (message.type) {
-    // Changed from show-initial-overlay
-    case 'toggle-overlay':
-        console.log("Message received: toggle-overlay");
-        toggleOverlay(); // Toggle visibility
-        break;
-    case 'capture-state-active':
-        console.log("Message received: capture-state-active");
-        updateUIForCaptureState(true);
-        // Ensure overlay is visible when capture starts
-        toggleOverlay(true);
-        break;
-    case 'capture-state-inactive':
-        console.log("Message received: capture-state-inactive");
-        const errorMsg = message.payload?.error;
-        updateUIForCaptureState(false, errorMsg);
-        // Keep overlay visible after stopping (user might want to restart)
-        toggleOverlay(true);
-        break;
-     // NEW: Handle preview frame
-    case 'preview-frame':
-        // console.log("Message received: preview-frame"); // Too noisy
-        if (isCaptureActive && message.payload?.frameDataUrl) {
-            drawPreviewFrame(message.payload.frameDataUrl);
-        }
-        break;
-    // --- NEW: Handle ONNX Prediction ---
-    case 'onnxPrediction':
-        if (isCaptureActive && message.payload?.prediction) {
-            predictionDisplay.textContent = `Prediction: ${message.payload.prediction}`;
-        } else if (!isCaptureActive) {
-             predictionDisplay.textContent = 'Prediction: N/A'; // Reset if somehow received while inactive
-        }
-        break;
-  }
-  return needsResponse; // Return true if sendResponse is used asynchronously
-});
-
-// --- Add log AFTER listener setup ---
-console.log("Content script: Message listener ADDED.");
-
-// --- Optional: Inject CSS --- (remains the same)
-const style = document.createElement('style');
-style.textContent = `
-  #adentify-toolbar button:hover,
-  #adentify-toolbar select:hover {
-    background: #777;
-  }
-   #adentify-toolbar button:disabled,
-   #adentify-toolbar select:disabled {
-    background: #444;
-    color: #888;
-    cursor: not-allowed;
-   }
-`;
-document.head.appendChild(style);
-
-console.log("Content script initialized with overlay UI.");
-// Set initial state (hidden, inactive)
-updateUIForCaptureState(false);
-toggleOverlay(false); // Start hidden
-
-// --- Initial Setup and Page Check ---
-console.log("Content script initialized.");
-
-// Check if the page is restricted
-const currentUrl = window.location.href;
-const currentHostname = window.location.hostname;
-if (currentUrl.startsWith('chrome:') || currentHostname === 'chrome.google.com') {
-    console.warn("Content script running on a restricted page.");
-    isPageRestricted = true;
+// --- Injection Guard ---
+if (window.adentifyScriptInjected) {
+  console.log("Adentify content script already injected. Exiting.");
+  // Potentially throw an error or just return to stop execution
+  // For now, just log and let it implicitly stop
 } else {
-    console.log("Content script running on a standard page.");
-    isPageRestricted = false;
-}
+  window.adentifyScriptInjected = true;
+  console.log("Content script running for the first time.");
 
-// Set initial state
-if (isPageRestricted) {
-    toolbar.style.display = 'none'; // Ensure toolbar is hidden
-    previewContainer.style.display = 'none';
-} else {
-    updateUIForCaptureState(false); // Setup initial button state
-}
-toggleOverlay(false); // Start hidden 
+  console.log("Content script loaded.");
+
+  // --- UI Elements ---
+  const uiContainer = document.createElement('div');
+  const previewContainer = document.createElement('div');
+  const previewCanvas = document.createElement('canvas');
+  const previewCtx = previewCanvas.getContext('2d');
+  const startCaptureButton = document.createElement('button');
+  const stopCaptureButton = document.createElement('button');
+  const closeButton = document.createElement('button');
+  const statusMessage = document.createElement('span');
+  const restrictedMessageDiv = document.createElement('div');
+  const predictionDisplay = document.createElement('div');
+  const dragHandle = document.createElement('span');
+  const recordingControls = document.createElement('div');
+
+  // --- State ---
+  let isCaptureActive = false;
+  let isPageRestricted = false;
+  let lastFrameTime = 0;
+  const FRAME_RATE_LIMIT = 15;
+
+  // --- Draggable State ---
+  let isDragging = false;
+  let currentX;
+  let currentY;
+  let initialX;
+  let initialY;
+  let xOffset = 0;
+  let yOffset = 0;
+
+  // Define the blue accent color consistently
+  const BLUE_ACCENT_COLOR = '#00bfff'; // Or match the exact CSS glow color if needed
+
+  // --- Setup UI Container ---
+  uiContainer.id = 'adentify-ui';
+  document.body.appendChild(uiContainer);
+
+  // --- Setup Corner Elements (Append directly to uiContainer) ---
+  closeButton.id = 'adentify-close-btn';
+  closeButton.textContent = '✕';
+  closeButton.removeAttribute('style');
+  closeButton.addEventListener('click', () => {
+      console.log("Close button clicked");
+      toggleOverlay(false);
+  });
+  uiContainer.appendChild(closeButton);
+
+  dragHandle.id = 'adentify-drag-handle';
+  dragHandle.textContent = '⠿';
+  dragHandle.removeAttribute('style');
+  dragHandle.addEventListener('mousedown', dragStart);
+  uiContainer.appendChild(dragHandle);
+
+  // --- Setup Initial Content (Start Button) ---
+  startCaptureButton.textContent = 'Start';
+  startCaptureButton.id = 'start-capture-btn';
+  startCaptureButton.removeAttribute('style');
+  startCaptureButton.addEventListener('click', () => {
+      console.log(`Start Capture clicked, type: tab (hardcoded)`);
+      chrome.runtime.sendMessage({ type: 'request-start-tab-capture' });
+      startCaptureButton.disabled = true;
+      statusMessage.textContent = 'Starting...';
+  });
+  uiContainer.appendChild(startCaptureButton);
+
+  // --- Setup Recording Content (Preview + Controls) ---
+  previewContainer.id = 'adentify-preview';
+
+  // NEW Canvas Wrapper
+  const canvasWrapper = document.createElement('div');
+  canvasWrapper.id = 'adentify-canvas-wrapper';
+
+  previewCanvas.id = 'adentify-preview-canvas';
+  previewCanvas.width = 240; // Keep size, adjust in CSS if needed
+  previewCanvas.height = 135;
+  // previewContainer.appendChild(previewCanvas); // Append canvas to wrapper instead
+  canvasWrapper.appendChild(previewCanvas); // Canvas goes inside the wrapper
+  previewContainer.appendChild(canvasWrapper); // Wrapper goes inside the preview container
+
+  uiContainer.appendChild(previewContainer);
+
+  recordingControls.id = 'adentify-recording-controls';
+
+  stopCaptureButton.textContent = 'Stop';
+  stopCaptureButton.id = 'stop-capture-btn';
+  stopCaptureButton.removeAttribute('style');
+  stopCaptureButton.addEventListener('click', () => {
+      console.log("Stop Capture button clicked");
+      chrome.runtime.sendMessage({ type: 'request-stop-capture' });
+      stopCaptureButton.disabled = true;
+      statusMessage.textContent = 'Stopping...';
+  });
+  recordingControls.appendChild(stopCaptureButton);
+
+  predictionDisplay.id = 'adentify-prediction';
+  predictionDisplay.textContent = 'Prediction: N/A';
+  recordingControls.appendChild(predictionDisplay);
+
+  uiContainer.appendChild(recordingControls);
+
+  // --- Setup Restricted Message ---
+  restrictedMessageDiv.id = 'adentify-restricted-msg';
+  restrictedMessageDiv.textContent = 'Screen recording is not available on this page.';
+  uiContainer.appendChild(restrictedMessageDiv);
+
+  // --- Setup Status Message ---
+  statusMessage.id = 'adentify-status';
+  statusMessage.removeAttribute('style');
+  recordingControls.appendChild(statusMessage);
+
+  // --- Update UI based on capture state ---
+  function updateUIForCaptureState(isActive, error = null) {
+      isCaptureActive = isActive;
+      console.log(`Updating UI - Capture Active: ${isCaptureActive}, Error: ${error}`);
+
+      // Add/remove class to main container for state-specific styling
+      uiContainer.classList.toggle('recording-active', isActive);
+
+      startCaptureButton.classList.toggle('hidden', isActive);
+      startCaptureButton.disabled = false; // Re-enable unless starting
+
+      previewContainer.classList.toggle('hidden', !isActive);
+      recordingControls.classList.toggle('hidden', !isActive);
+      stopCaptureButton.disabled = false; // Re-enable unless stopping
+
+      if (!isActive) {
+          predictionDisplay.textContent = 'No Basketball'; // Reset text on stop
+          predictionDisplay.classList.remove('prediction-basketball'); // Ensure accent class is removed
+          // Clear preview canvas
+          previewCtx.fillStyle = '#1a1f2c'; // Match new background
+          previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+      }
+
+      // Update status message visibility and content
+      if (isActive) {
+          // statusMessage.textContent = 'Recording...'; // Content not needed
+          statusMessage.classList.add('hidden'); // Hide during active recording
+      } else if (error) {
+          statusMessage.textContent = `Error: ${error}`;
+          statusMessage.style.color = '#FFB74D'; // Use warning color for errors
+          statusMessage.classList.remove('hidden'); // Show errors
+      } else {
+          statusMessage.textContent = ''; // Clear status when idle
+          statusMessage.classList.add('hidden'); // Hide when idle and no error
+          statusMessage.style.color = ''; // Reset color
+      }
+  }
+
+  // --- Toggle Overlay Visibility ---
+  function toggleOverlay(forceShow) {
+      const shouldShow = forceShow !== undefined ? forceShow : uiContainer.classList.contains('hidden');
+      console.log(`toggleOverlay called. Current hidden: ${uiContainer.classList.contains('hidden')}, shouldShow: ${shouldShow}`);
+
+      if (shouldShow) {
+          uiContainer.classList.remove('hidden');
+          console.log(`Overlay should be visible.`);
+          if (isPageRestricted) {
+              console.log(`Page is restricted. Showing message.`);
+              startCaptureButton.classList.add('hidden');
+              previewContainer.classList.add('hidden');
+              recordingControls.classList.add('hidden');
+              closeButton.classList.add('hidden');
+              dragHandle.classList.add('hidden');
+              restrictedMessageDiv.classList.remove('hidden');
+          } else {
+              console.log(`Page not restricted. Updating UI state.`);
+              restrictedMessageDiv.classList.add('hidden');
+              closeButton.classList.remove('hidden');
+              dragHandle.classList.remove('hidden');
+              updateUIForCaptureState(isCaptureActive);
+          }
+      } else {
+          console.log(`Overlay should be hidden.`);
+          uiContainer.classList.add('hidden');
+      }
+  }
+
+  // --- Handle Preview Frame ---
+  function drawPreviewFrame(dataUrl) {
+      const now = performance.now();
+      if (now - lastFrameTime < (1000 / FRAME_RATE_LIMIT)) {
+          return;
+      }
+      lastFrameTime = now;
+
+      const img = new Image();
+      img.onload = () => {
+          const hRatio = previewCanvas.width / img.width;
+          const vRatio = previewCanvas.height / img.height;
+          const ratio = Math.min(hRatio, vRatio);
+          const centerShift_x = (previewCanvas.width - img.width * ratio) / 2;
+          const centerShift_y = (previewCanvas.height - img.height * ratio) / 2;
+
+          previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+          previewCtx.drawImage(img, 0, 0, img.width, img.height,
+                               centerShift_x, centerShift_y, img.width * ratio, img.height * ratio);
+      };
+      img.onerror = () => {
+          console.error("Error loading preview frame image");
+          previewCtx.fillStyle = 'red';
+          previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+      };
+      img.src = dataUrl;
+  }
+
+  // --- Message Listener from Background ---
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log("Content script: Received message type:", message.type);
+
+    let needsResponse = false;
+    switch (message.type) {
+      case 'toggle-overlay':
+          console.log("Message received: toggle-overlay");
+          toggleOverlay();
+          break;
+      case 'capture-state-active':
+          console.log("Message received: capture-state-active");
+          updateUIForCaptureState(true);
+          toggleOverlay(true);
+          break;
+      case 'capture-state-inactive':
+          console.log("Message received: capture-state-inactive");
+          const errorMsg = message.payload?.error;
+          updateUIForCaptureState(false, errorMsg);
+          toggleOverlay(true);
+          break;
+      case 'preview-frame':
+          if (isCaptureActive && message.payload?.frameDataUrl) {
+              drawPreviewFrame(message.payload.frameDataUrl);
+          }
+          break;
+      case 'onnxPrediction':
+          const predictionText = message.payload?.prediction;
+          if (isCaptureActive && predictionText) {
+              // Simplify text and apply conditional styling class
+              // Check specifically for the positive detection string from the worker
+              if (predictionText === "Basketball Detected") { // More specific check
+                  predictionDisplay.textContent = 'Basketball';
+                  predictionDisplay.classList.add('prediction-basketball');
+              } else {
+                  // Assume anything else is "No Basketball"
+                  predictionDisplay.textContent = 'No Basketball';
+                  predictionDisplay.classList.remove('prediction-basketball');
+              }
+          } else if (!isCaptureActive) {
+               // Reset if somehow received while inactive (shouldn't happen often)
+               predictionDisplay.textContent = 'No Basketball';
+               predictionDisplay.classList.remove('prediction-basketball');
+          }
+          break;
+    }
+    return needsResponse;
+  });
+
+  console.log("Content script attaching event listeners and setting initial state.");
+
+  // Initial Page Check
+  const currentUrl = window.location.href;
+  const currentHostname = window.location.hostname;
+  if (currentUrl.startsWith('chrome:') || currentHostname === 'chrome.google.com') {
+      console.warn("Content script running on a restricted page.");
+      isPageRestricted = true;
+  } else {
+      console.log("Content script running on a standard page.");
+      isPageRestricted = false;
+  }
+
+  // Set initial state, position & hidden class
+  uiContainer.classList.add('hidden');
+  const initialPadding = 20;
+  let initialLeft = window.innerWidth - 250 - initialPadding;
+  let initialTop = window.innerHeight - 150 - initialPadding;
+  if (initialLeft < 0) initialLeft = initialPadding;
+  if (initialTop < 0) initialTop = initialPadding;
+  xOffset = initialLeft;
+  yOffset = initialTop;
+  setTranslate(initialLeft, initialTop, uiContainer);
+
+  // Set initial element visibility based on page restriction
+  if (isPageRestricted) {
+      startCaptureButton.classList.add('hidden');
+      previewContainer.classList.add('hidden');
+      recordingControls.classList.add('hidden');
+      closeButton.classList.add('hidden');
+      dragHandle.classList.add('hidden');
+      restrictedMessageDiv.classList.add('hidden');
+  } else {
+      restrictedMessageDiv.classList.add('hidden');
+      updateUIForCaptureState(false);
+  }
+
+  console.log("Content script initial setup complete.");
+
+  // --- Event Listeners for Dragging ---
+  function dragStart(e) {
+      if (e.button !== 0) return;
+
+      if (e.target === dragHandle) {
+          initialX = e.clientX - xOffset;
+          initialY = e.clientY - yOffset;
+          isDragging = true;
+          document.addEventListener('mousemove', drag);
+          document.addEventListener('mouseup', dragEnd);
+          e.preventDefault();
+      }
+  }
+
+  function drag(e) {
+      if (!isDragging) return;
+      e.preventDefault();
+
+      currentX = e.clientX - initialX;
+      currentY = e.clientY - initialY;
+
+      xOffset = currentX;
+      yOffset = currentY;
+
+      setTranslate(currentX, currentY, uiContainer);
+  }
+
+  function setTranslate(xPos, yPos, el) {
+      el.style.transform = `translate3d(${xPos}px, ${yPos}px, 0)`;
+  }
+
+  function dragEnd(e) {
+      if (!isDragging) return;
+      isDragging = false;
+      document.removeEventListener('mousemove', drag);
+      document.removeEventListener('mouseup', dragEnd);
+  }
+} // End of injection guard else block 
