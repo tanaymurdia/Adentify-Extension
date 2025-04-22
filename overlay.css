@@ -1,0 +1,8 @@
+#screenity-replica-ui {
+  /* Basic styles for the container, if needed */
+}
+
+#screenity-replica-ui > div {
+  /* Styles for the placeholder or other UI elements */
+  font-family: sans-serif;
+} 

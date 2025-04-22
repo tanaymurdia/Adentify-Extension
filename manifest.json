@@ -1,32 +1,55 @@
 {
   "manifest_version": 3,
-  "name": "Basketball Image Classifier",
-  "version": "1.0",
-  "description": "A Chrome extension to classify basketball images using ONNX model",
-  "action": {
-    "default_popup": "popup.html",
-    "default_icon": {
-      "16": "images/icon16.png",
-      "48": "images/icon48.png",
-      "128": "images/icon128.png"
-    }
-  },
+  "name": "Screen Recorder Replica",
+  "version": "0.1.0",
+  "description": "Replicates Screenity's screen capture with overlay.",
   "permissions": [
-    "storage",
     "activeTab",
+    "scripting",
+    "storage",
+    "tabCapture",
     "tabs",
-    "tabCapture"
+    "downloads"
+  ],
+  "optional_permissions": [
+    "desktopCapture",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.bundle.js"
+  },
+  "action": {
+    "default_icon": {
+      "128": "icon128.png"
+    },
+    "default_title": "Start Recording"
+  },
+  "icons": {
+    "128": "icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content_script.bundle.js"],
+      "css": ["overlay.css"],
+      "run_at": "document_end"
+    }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["models/*"],
+      "resources": [
+        "offscreen.html",
+        "offscreen.bundle.js",
+        "launcher.html",
+        "launcher.bundle.js",
+        "overlay.js",
+        "overlay.css",
+        "icon128.png"
+      ],
       "matches": ["<all_urls>"]
     }
-  ],
-  "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
-  },
-  "background": {
-    "service_worker": "background.js"
-  }
+  ]
 } 
