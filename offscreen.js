@@ -58,20 +58,10 @@ async function startRecording(payload) {
 
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        mandatory: {
-          chromeMediaSource: mediaSource,
-          chromeMediaSourceId: streamId,
-        },
-      },
       video: {
         mandatory: {
           chromeMediaSource: mediaSource,
           chromeMediaSourceId: streamId,
-          // Consider adding quality constraints if needed
-          // maxWidth: 1920,
-          // maxHeight: 1080,
-          // maxFrameRate: 30,
         },
       },
     });
