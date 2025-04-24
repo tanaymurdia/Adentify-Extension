@@ -161,7 +161,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         stopCaptureButton.style.display = 'block';
                     }
                 } else {
-                    // Capturing on another tab: allow switch
+                    // Capturing on another tab: allow switch and also stop
                     if (recordTabButton) {
                         recordTabButton.textContent = 'Start Adentifying here';
                         recordTabButton.style.display = 'block';
@@ -170,7 +170,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             window.close();
                         };
                     }
-                    if (stopCaptureButton) stopCaptureButton.style.display = 'none';
+                    if (stopCaptureButton) {
+                        stopCaptureButton.textContent = 'Stop Adentifying';
+                        stopCaptureButton.style.display = 'block';
+                        stopCaptureButton.onclick = () => {
+                            chrome.runtime.sendMessage({ type: 'request-stop-capture' });
+                            window.close();
+                        };
+                    }
                 }
             }
         });

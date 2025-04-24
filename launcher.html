@@ -3,109 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <title>Select Media Source</title>
-    <link rel="stylesheet" href="overlay.css">
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            padding: 1.5em;
-            text-align: center;
-            background-color: #121212;
-            color: #e0e0e0;
-            min-width: 480px;
-            margin: 0;
-        }
-        h1 {
-            font-size: 28px;
-            letter-spacing: 1px;
-            margin-bottom: 24px;
-            color: #fafafa;
-        }
-        h1, h3, p, #status {
-            color: #e0e0e0;
-        }
-        button {
-            font-size: 16px;
-            padding: 12px 24px;
-            border-radius: 8px;
-            border: 1px solid #444;
-            background-color: #2a2a2a;
-            color: #e0e0e0;
-            cursor: pointer;
-            transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
-        }
-        button:hover {
-            background-color: #353535;
-            transform: translateY(-1px);
-        }
-        button:active {
-            background-color: #2a2a2a;
-            transform: translateY(0);
-        }
-        #stop-capture-btn {
-            display: none;
-        }
-        #start-capture-btn,
-        #stop-capture-btn {
-            position: static !important;
-            width: 100% !important;
-            box-sizing: border-box !important;
-            margin: 0.5em 0 !important;
-            background-color: #e53e3e !important;
-            border-color: #e53e3e !important;
-            color: #fafafa !important;
-        }
-        #start-capture-btn:hover,
-        #stop-capture-btn:hover {
-            background-color: #c53030 !important;
-            border-color: #c53030 !important;
-        }
-        #adentify-ui {
-            position: static !important;
-            width: 100% !important;
-            box-sizing: border-box !important;
-            background-color: #1e1e1e;
-            border-radius: 12px;
-            padding: 16px !important;
-            margin-top: 16px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-            pointer-events: auto !important;
-        }
-        #adentify-ui.recording-active {
-            background-color: #1e1e1e !important;
-        }
-        #adentify-ui.recording-active > #adentify-preview,
-        #adentify-ui.recording-active > #adentify-recording-controls {
-            opacity: 1 !important;
-            visibility: visible !important;
-        }
-        #adentify-canvas-wrapper {
-            border-radius: 8px;
-            overflow: hidden;
-            margin-bottom: 12px;
-        }
-        #adentify-preview-canvas {
-            width: 100%;
-            height: auto;
-            display: block;
-        }
-        #launcher-prediction {
-            margin: 12px 0;
-            color: #e0e0e0;
-            font-size: 14px;
-            text-align: center;
-        }
-        #adentify-preview-toggle-btn {
-            background-color: #2a2a2a;
-            border-color: #e53e3e;
-            color: #e0e0e0;
-            margin-top: 8px;
-        }
-        #adentify-preview-toggle-btn:hover {
-            background-color: #353535;
-        }
-    </style>
+    <link rel="stylesheet" href="launcher.css">
 </head>
 <body>
+    <div id="bg-layer"></div>
+    <div id="content">
     <h1 id="title">Adentify</h1>
     <button id="start-capture-btn">Start Adentifying</button>
     <button id="stop-capture-btn">Stop Adentifying</button>
@@ -121,5 +23,6 @@
       </div>
     </div>
     <script src="launcher.bundle.js"></script>
+    </div>
 </body>
 </html> 

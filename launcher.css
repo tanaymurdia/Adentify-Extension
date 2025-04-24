@@ -1,0 +1,188 @@
+/* --- Reset/Base --- */
+* {
+  box-sizing: border-box;
+}
+
+/* --- Helper Classes --- */
+.hidden {
+  display: none !important;
+}
+
+/* Launcher Popup Styles */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    padding: 1.5em 1em;
+    background-color: #121212;
+    color: #e0e0e0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 320px;
+    position: relative;
+    overflow: hidden;
+}
+
+h1 {
+    font-size: 32px;
+    letter-spacing: 1px;
+    margin: 0 0 24px;
+    color: #fafafa;
+}
+button {
+    font-size: 16px;
+    padding: 12px 24px;
+    border-radius: 12px;
+    border: none;
+    background-color: #2a2a2a;
+    color: #e0e0e0;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+}
+button:hover {
+    background-color: #333;
+    transform: translateY(-1px);
+}
+button:active {
+    background-color: #2a2a2a;
+    transform: translateY(0);
+}
+#start-capture-btn,
+#stop-capture-btn {
+    display: block;
+    max-width: 320px;
+    margin: 0.5em auto;
+    background-color: #e53e3e;
+    color: #fafafa;
+    font-weight: 600;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+#start-capture-btn:hover,
+#stop-capture-btn:hover {
+    background-color: #d32f2f;
+}
+#stop-capture-btn {
+    display: none;
+}
+#adentify-ui {
+    width: 90%;
+    max-width: 400px;
+    background-color: #1f1f1f;
+    border-radius: 16px;
+    padding: 20px;
+    margin: 24px 0 0;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    pointer-events: auto;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    box-sizing: border-box;
+}
+#adentify-ui.recording-active {
+    /* container inherits max-width from parent */
+}
+#adentify-preview {
+    max-width: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #000;
+}
+#adentify-canvas-wrapper {
+    /* wrapper inherits width, height auto by default */
+}
+#adentify-preview-canvas {
+    max-width: 100%;
+    display: block;
+}
+#adentify-recording-controls {
+    overflow: visible;
+}
+#launcher-prediction {
+    margin: 8px 0 16px;
+    color: #c0c0c0;
+    font-size: 14px;
+    text-align: center;
+    font-style: italic;
+}
+#adentify-preview-toggle-btn {
+    font-size: 14px;
+    padding: 8px 16px;
+    border: 1px solid #e53e3e;
+    background: transparent;
+    color: #e53e3e;
+    border-radius: 8px;
+    transition: background-color 0.2s ease, color 0.2s ease;
+    margin-top: 8px;
+}
+#adentify-preview-toggle-btn:hover {
+    background-color: #e53e3e;
+    color: #fafafa;
+}
+
+/* Hide preview when toggled */
+#adentify-ui.preview-hidden #adentify-preview {
+    display: none !important;
+}
+
+/* Insert new background onto #bg-layer and keyframes */
+#bg-layer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    z-index: 0;
+    pointer-events: none;
+}
+#bg-layer::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: repeating-conic-gradient(
+        from 0deg,
+        rgba(255,255,255,0.03) 0deg 15deg,
+        transparent 15deg 30deg
+    );
+    animation: spin-slow 90s linear infinite;
+    opacity: 0.9;
+    filter: blur(20px);
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+
+/* Add scanning lines for AI vibe */
+#bg-layer::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: repeating-linear-gradient(
+        0deg,
+        rgba(255,255,255,0.02) 0 2px,
+        transparent 2px 6px
+    );
+    animation: scan 8s linear infinite;
+    opacity: 0.9;
+}
+@keyframes pulse {
+    0%,100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+@keyframes scan { to { background-position: 0 100px; } }
+
+/* Ensure content is above bg-layer */
+#content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 80%;
+    max-width: 360px;
+    box-sizing: border-box;
+} 

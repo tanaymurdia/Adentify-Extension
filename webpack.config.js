@@ -26,9 +26,8 @@ module.exports = {
         { from: 'manifest.json', to: '.' },
         { from: 'offscreen.html', to: '.' },
         { from: 'launcher.html', to: '.' },
-        { from: 'overlay.css', to: '.' },
+        { from: 'launcher.css', to: '.' },
         { from: 'icon128.png', to: '.' },
-        { from: 'overlay.js', to: '.' }, // This might not be needed if overlay logic is bundled? Check usage.
         // Copy ONNX Runtime WASM files and the main library
         { 
           from: 'node_modules/onnxruntime-web/dist/*.wasm',
