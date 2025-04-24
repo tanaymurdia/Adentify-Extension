@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Adentify</title>
+    <link rel="stylesheet" href="launcher.css">
+</head>
+<body>
+    <div id="bg-layer">
+        <canvas id="lightning-canvas"></canvas>
+    </div>
+    <div id="content">
+    <div id="header">
+      <img src="assets/adentify-icon.png" id="popup-icon" alt="Adentify Icon" />
+      <h1 id="title">entify</h1>
+    </div>
+    <button id="start-capture-btn">Start Adentifying</button>
+    <button id="stop-capture-btn">Stop Adentifying</button>
+    <div id="adentify-ui" class="hidden">
+      <div id="adentify-preview">
+        <div id="adentify-canvas-wrapper">
+          <canvas id="adentify-preview-canvas" width="320" height="180"></canvas>
+        </div>
+      </div>
+      <p id="launcher-prediction" style="margin:12px 0; color:#a0b0c0; font-size:14px; text-align:center;">Prediction: Waiting...</p>
+      <div id="adentify-recording-controls">
+        <button id="adentify-preview-toggle-btn">Hide Preview</button>
+      </div>
+    </div>
+    <script src="launcher.bundle.js"></script>
+    </div>
+</body>
+</html> 

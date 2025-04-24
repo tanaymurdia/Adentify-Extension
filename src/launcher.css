@@ -1,0 +1,201 @@
+/* --- Reset/Base --- */
+* {
+  box-sizing: border-box;
+}
+
+/* --- Helper Classes --- */
+.hidden {
+  display: none !important;
+}
+
+/* Launcher Popup Styles */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    padding: 1.5em 1em;
+    background-color: #121212;
+    color: #e0e0e0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 320px;
+    position: relative;
+    overflow: hidden;
+}
+
+h1 {
+    font-size: 24px;
+    letter-spacing: 3px;
+    margin: 0 0 5px -10px;
+    color: #ff3636;
+    font-weight: normal;
+}
+
+/* New header styling for icon and title */
+#header {
+    display: flex;
+    align-items: center;
+    /* justify-content: center; */
+    gap: 5px;
+    margin: 0 0 24px;
+}
+#popup-icon {
+    width: 80px;
+    height: 80px;
+    object-fit: contain;
+}
+
+button {
+    font-size: 16px;
+    padding: 12px 24px;
+    border-radius: 12px;
+    border: none;
+    background-color: #2a2a2a;
+    color: #e0e0e0;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+}
+button:hover {
+    background-color: #333;
+    transform: translateY(-1px);
+}
+button:active {
+    background-color: #2a2a2a;
+    transform: translateY(0);
+}
+#start-capture-btn,
+#stop-capture-btn {
+    display: block;
+    width: 100%;
+    max-width: 320px;
+    margin: 0.5em auto;
+    background-color: #e53e3e;
+    color: #fafafa;
+    font-weight: 600;
+    font-size: 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+#start-capture-btn:hover,
+#stop-capture-btn:hover {
+    background-color: #d32f2f;
+}
+#stop-capture-btn {
+    display: none;
+}
+#adentify-ui {
+    width: 90%;
+    max-width: 400px;
+    background-color: #1f1f1f;
+    border-radius: 16px;
+    padding: 20px;
+    margin: 24px 0 0;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    pointer-events: auto;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    box-sizing: border-box;
+}
+#adentify-ui.recording-active {
+    /* container inherits max-width from parent */
+}
+#adentify-preview {
+    max-width: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #000;
+}
+#adentify-canvas-wrapper {
+    /* wrapper inherits width, height auto by default */
+}
+#adentify-preview-canvas {
+    max-width: 100%;
+    display: block;
+}
+#adentify-recording-controls {
+    overflow: visible;
+}
+#launcher-prediction {
+    margin: 8px 0 16px;
+    color: #c0c0c0;
+    font-size: 14px;
+    text-align: center;
+    font-style: italic;
+}
+#adentify-preview-toggle-btn {
+    font-size: 14px;
+    padding: 8px 16px;
+    border: 1px solid #e53e3e;
+    background: transparent;
+    color: #e53e3e;
+    border-radius: 8px;
+    transition: background-color 0.2s ease, color 0.2s ease;
+    margin-top: 8px;
+}
+#adentify-preview-toggle-btn:hover {
+    background-color: #e53e3e;
+    color: #fafafa;
+}
+
+/* Hide preview when toggled */
+#adentify-ui.preview-hidden #adentify-preview {
+    display: none !important;
+}
+
+/* Remove any existing bg-layer animations (they were pseudo-elements)
+   Add a full-screen lightning canvas */
+#bg-layer {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 0;
+}
+#lightning-canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+    pointer-events: none;
+}
+/* Ensure content sits above lightning */
+#content {
+    position: relative;
+    z-index: 1;
+    max-width: 360px;
+    width: 90%;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* Lightning strike effect */
+#lightning {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+}
+#lightning::after {
+    content: '';
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: radial-gradient(circle at center,
+        rgba(229,62,62,0.3) 0%, transparent 40%);
+    opacity: 0;
+    filter: blur(20px);
+    animation: lightning-strike 5s infinite;
+}
+@keyframes lightning-strike {
+    0%,85%,100% { opacity: 0; }
+    85% { opacity: 0.8; filter: hue-rotate(0deg); }
+    87% { opacity: 0; }
+    90% { opacity: 0.6; filter: hue-rotate(15deg); }
+    92% { opacity: 0; }
+    95% { opacity: 0.7; filter: hue-rotate(-15deg); }
+    97% { opacity: 0; }
+} 

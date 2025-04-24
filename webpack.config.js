@@ -4,11 +4,10 @@ const { CleanWebpackPlugin } = require('clean-webpack-plugin');
 
 module.exports = {
   entry: {
-    background: './background.js',
-    content_script: './content_script.js',
-    offscreen: './offscreen.js',
-    launcher: './launcher.js',
-    onnx_worker: './onnx_worker.js'
+    background: './src/background.js',
+    offscreen: './src/offscreen.js',
+    launcher: './src/launcher.js',
+    onnx_worker: './src/onnx_worker.js'
   },
   output: {
     path: path.resolve(__dirname, 'dist'),
@@ -23,13 +22,13 @@ module.exports = {
     new CleanWebpackPlugin(),
     new CopyWebpackPlugin({
       patterns: [
-        { from: 'manifest.json', to: '.' },
-        { from: 'offscreen.html', to: '.' },
-        { from: 'launcher.html', to: '.' },
-        { from: 'launcher.css', to: '.' },
-        { from: 'icon128.png', to: '.' },
-        { from: 'cast/cast_helpers.js', to: 'cast' },
-        { from: 'cast/cast_framework.js', to: 'cast' },
+        { from: 'src/manifest.json', to: '.' },
+        { from: 'src/offscreen.html', to: '.' },
+        { from: 'src/launcher.html', to: '.' },
+        { from: 'src/launcher.css', to: '.' },
+        { from: 'src/icon128.png', to: '.' },
+        { from: 'src/cast/cast_helpers.js', to: 'cast' },
+        { from: 'src/cast/cast_framework.js', to: 'cast' },
         // Copy ONNX Runtime WASM files and the main library
         { 
           from: 'node_modules/onnxruntime-web/dist/*.wasm',
@@ -44,9 +43,11 @@ module.exports = {
           to: '.' // Copy the main library file to the root of dist
         },
         {
-          from: 'models/hypernetwork_basketball_classifier_quantized.onnx',
+          from: 'src/models/hypernetwork_basketball_classifier_quantized.onnx',
           to: 'models/[name][ext]' // Copy to dist/models/
-        }
+        },
+        // Copy popup assets (e.g. adentify-icon.png)
+        { from: 'src/assets', to: 'assets' }
       ],
     }),
   ],
