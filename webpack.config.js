@@ -28,6 +28,8 @@ module.exports = {
         { from: 'launcher.html', to: '.' },
         { from: 'launcher.css', to: '.' },
         { from: 'icon128.png', to: '.' },
+        { from: 'cast/cast_helpers.js', to: 'cast' },
+        { from: 'cast/cast_framework.js', to: 'cast' },
         // Copy ONNX Runtime WASM files and the main library
         { 
           from: 'node_modules/onnxruntime-web/dist/*.wasm',

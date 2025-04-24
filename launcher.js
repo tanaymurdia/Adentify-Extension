@@ -1,5 +1,15 @@
 // This script runs immediately in launcher.html
 
+// Define stubs to avoid ReferenceErrors until Cast helpers load
+var isCasting = function() {
+  return window.castHelpers && typeof window.castHelpers.isCasting === 'function'
+    ? window.castHelpers.isCasting()
+    : false;
+};
+var maybeClose = function(delay) {
+  if (delay) setTimeout(() => {}, delay);
+};
+
 console.log("Launcher script started.");
 
 const recordTabButton = document.getElementById('start-capture-btn');
@@ -24,8 +34,8 @@ if (stopCaptureButton) {
         stopCaptureButton.disabled = true;
         // Request background to stop capture
         chrome.runtime.sendMessage({ type: 'request-stop-capture' });
-        // Close launcher popup after a short delay
-        setTimeout(() => window.close(), 500);
+        // Close launcher popup after a short delay only if not casting
+        maybeClose(500);
     });
 } else {
     console.error("'stop-capture-btn' button not found.");
@@ -54,8 +64,8 @@ function handleBackgroundResponse(response, successMessage) {
     } else if (response && response.success) {
         updateStatus(successMessage + " Closing...");
         console.log(successMessage, "Response:", response);
-        // Close the launcher window after a short delay
-        setTimeout(() => window.close(), 500);
+        // Close the launcher window after a short delay only if not casting
+        maybeClose(500);
     } else {
         // Background script indicated failure or unexpected response
         const errorMessage = response?.error || "Background script failed to process request.";
@@ -72,7 +82,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === 'close-launcher') {
         console.log('Received close request from background.');
         updateStatus("Closing launcher...");
-        window.close();
+        maybeClose();
         sendResponse({status: 'closing'});
         return true; // Indicates async response, though we close immediately
     }
@@ -124,6 +134,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (launchPred) {
             launchPred.textContent = `Prediction: ${text}`;
         }
+        // track whether we're in Basketball mode
+        isBasketballMode = (text === 'Basketball');
+        // Adjust cast volume based on prediction only when casting
+        if (typeof isCasting === 'function' && isCasting()) {
+            if (text === 'Basketball') {
+                setCastVolume(baselineVolume);
+            } else {
+                setCastVolume(baselineVolume * REDUCED_VOLUME_FACTOR);
+            }
+        }
         sendResponse({ status: 'prediction-updated' });
         return false;
     }
@@ -133,6 +153,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // --- Initial State ---
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Safely check for casting function
+    const castingStatus = (typeof isCasting === 'function') ? isCasting() : false;
+    console.log('Launcher DOMContentLoaded - isCasting:', castingStatus);
     // Determine button states based on capture info and current tab
     chrome.runtime.sendMessage({ type: 'request-capture-state' }, (resp) => {
         if (chrome.runtime.lastError || !resp?.success) return;
@@ -148,7 +171,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     recordTabButton.style.display = 'block';
                     recordTabButton.onclick = () => {
                         chrome.runtime.sendMessage({ type: 'request-start-tab-capture', tabId: currentTabId });
-                        window.close();
+                        maybeClose();
                     };
                 }
                 if (stopCaptureButton) stopCaptureButton.style.display = 'none';
@@ -159,6 +182,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (stopCaptureButton) {
                         stopCaptureButton.textContent = 'Stop Adentifying';
                         stopCaptureButton.style.display = 'block';
+                        // keep open if casting, else close on click
+                        stopCaptureButton.onclick = () => {
+                            chrome.runtime.sendMessage({ type: 'request-stop-capture' });
+                            maybeClose(500);
+                        };
                     }
                 } else {
                     // Capturing on another tab: allow switch and also stop
@@ -167,7 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         recordTabButton.style.display = 'block';
                         recordTabButton.onclick = () => {
                             chrome.runtime.sendMessage({ type: 'request-switch-tab-capture', tabId: currentTabId });
-                            window.close();
+                            maybeClose();
                         };
                     }
                     if (stopCaptureButton) {
@@ -175,7 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         stopCaptureButton.style.display = 'block';
                         stopCaptureButton.onclick = () => {
                             chrome.runtime.sendMessage({ type: 'request-stop-capture' });
-                            window.close();
+                            maybeClose(500);
                         };
                     }
                 }
@@ -279,4 +307,14 @@ function initLightningCanvas() {
 }
 
 // Initialize lightning after DOM loads
-document.addEventListener('DOMContentLoaded', initLightningCanvas); 
+document.addEventListener('DOMContentLoaded', initLightningCanvas);
+
+// Dynamically load Cast support scripts to comply with CSP (no inline event handlers)
+const _castScripts = ['cast/cast_helpers.js', 'cast/cast_framework.js'];
+_castScripts.reduce((p, src) => p.then(() => new Promise((res, rej) => {
+  const s = document.createElement('script');
+  s.src = src;
+  s.onload = () => { console.log(`${src} loaded successfully`); res(); };
+  s.onerror = (e) => { console.error(`Failed to load ${src}`, e); rej(e); };
+  document.head.appendChild(s);
+})), Promise.resolve()).catch(err => console.error('Error loading Cast scripts:', err)); 
