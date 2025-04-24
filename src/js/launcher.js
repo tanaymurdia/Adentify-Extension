@@ -249,6 +249,28 @@ document.addEventListener('DOMContentLoaded', () => {
             if (lp) lp.textContent = `Prediction: ${txt}`;
         }
     });
+    // Settings drawer open/close toggle
+    const settingsBtn = document.getElementById('settings-btn');
+    const settingsDrawer = document.getElementById('settings-drawer');
+    if (settingsBtn && settingsDrawer) {
+        settingsBtn.addEventListener('click', () => {
+            const open = settingsBtn.classList.toggle('open');
+            if (open) {
+                settingsDrawer.classList.remove('hidden');
+            } else {
+                settingsDrawer.classList.add('hidden');
+            }
+        });
+    }
+    // Adaptive sound toggle: inform background of initial state and listen for changes
+    const adaptiveToggle = document.getElementById('adaptive-sound-toggle');
+    if (adaptiveToggle) {
+        // Send default state to background
+        chrome.runtime.sendMessage({ type: 'set-adaptive-sound', enabled: adaptiveToggle.checked });
+        adaptiveToggle.addEventListener('change', () => {
+            chrome.runtime.sendMessage({ type: 'set-adaptive-sound', enabled: adaptiveToggle.checked });
+        });
+    }
 });
 
 console.log("Launcher script loaded and listeners attached.");

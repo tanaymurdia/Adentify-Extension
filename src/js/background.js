@@ -14,6 +14,8 @@ let fullscreenedWindow = null; // Stores { id: windowId, previousState: windowSt
 
 // At the top, declare lastPrediction
 let lastPrediction = null; // Store most recent onnx prediction
+// Adaptive sound toggle state (on by default)
+let adaptiveSoundEnabled = true;
 
 // Stub sendMessageToContentScript to no-op (UI moved to popup)
 
@@ -119,21 +121,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   });
                   
                   // Determine mute state based on prediction
-                  // --- UPDATED: Check against the correct string --- 
-                  const shouldBeMuted = prediction !== "Basketball Detected"; 
-
-                  // Check if the state actually needs changing
-                  if (tabMutedState[message.payload.tabId] !== shouldBeMuted) {
-                     console.log(`Background: Updating mute state for tab ${message.payload.tabId} to ${shouldBeMuted} based on prediction: ${prediction}`);
-                      chrome.tabs.update(message.payload.tabId, { muted: shouldBeMuted })
-                        .then(() => {
-                            tabMutedState[message.payload.tabId] = shouldBeMuted; // Update tracked state
-                        })
-                        .catch(error => {
-                            console.error(`Background: Failed to update mute state for tab ${message.payload.tabId}:`, error);
-                            // Consider removing tabId from tabMutedState if update fails
-                            delete tabMutedState[message.payload.tabId];
-                        });
+                  const shouldBeMuted = prediction !== "Basketball Detected";
+                  if (adaptiveSoundEnabled) {
+                      // Only update mute if adaptive sound is enabled
+                      if (tabMutedState[message.payload.tabId] !== shouldBeMuted) {
+                         console.log(`Background: Updating mute state for tab ${message.payload.tabId} to ${shouldBeMuted} based on prediction: ${prediction}`);
+                          chrome.tabs.update(message.payload.tabId, { muted: shouldBeMuted })
+                            .then(() => {
+                                tabMutedState[message.payload.tabId] = shouldBeMuted;
+                            })
+                            .catch(error => {
+                                console.error(`Background: Failed to update mute state for tab ${message.payload.tabId}:`, error);
+                                delete tabMutedState[message.payload.tabId];
+                            });
+                      }
+                  } else {
+                      // Adaptive sound disabled: ensure tab is unmuted if it was muted
+                      if (tabMutedState[message.payload.tabId]) {
+                          chrome.tabs.update(message.payload.tabId, { muted: false })
+                            .then(() => delete tabMutedState[message.payload.tabId])
+                            .catch(err => console.error(`Background: Failed to unmute tab on adaptive-sound-off:`, err));
+                      }
                   }
               } else {
                  console.warn("Background: Received onnxPrediction but missing data, capture not active, or no target tab.", {
@@ -155,6 +163,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Include which tab is being captured so the popup can adjust UI
       const activeTabId = targetTabIdForCapture || captureTabId;
       sendResponse({ success: true, isActive: isCaptureActive, targetTabId: activeTabId });
+      return false;
+    case 'set-adaptive-sound':
+      adaptiveSoundEnabled = !!message.enabled;
+      console.log(`Background: Adaptive sound set to ${adaptiveSoundEnabled}`);
+      // If disabling, unmute the current capture tab if muted
+      if (!adaptiveSoundEnabled) {
+        const tabToRestore = targetTabIdForCapture || captureTabId;
+        if (tabToRestore && tabMutedState[tabToRestore]) {
+          chrome.tabs.update(tabToRestore, { muted: false })
+            .then(() => delete tabMutedState[tabToRestore])
+            .catch(err => console.error('Background: Failed to unmute on disable adaptive sound:', err));
+        }
+      }
+      sendResponse({ success: true });
       return false;
     case 'request-start-tab-capture':
         console.log("Received request-start-tab-capture.");

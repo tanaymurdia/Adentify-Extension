@@ -6,6 +6,13 @@
     <link rel="stylesheet" href="launcher.css">
 </head>
 <body>
+    <button id="settings-btn" title="Settings" aria-label="Toggle settings">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H8a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V8a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+      </svg>
+      <span class="close-icon">×</span>
+    </button>
     <div id="bg-layer">
         <canvas id="lightning-canvas"></canvas>
     </div>
@@ -29,6 +36,21 @@
     </div>
     <script src="launcher.bundle.js"></script>
     <script src="lightning.js"></script>
+    </div>
+    <!-- Settings Drawer -->
+    <div id="settings-drawer" class="hidden">
+      <div class="drawer-header">
+        <h2>Settings</h2>
+      </div>
+      <div class="drawer-content">
+        <div class="setting-item">
+          <span>Enable adaptive sound</span>
+          <label class="switch">
+            <input type="checkbox" id="adaptive-sound-toggle" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
     </div>
 </body>
 </html> 
