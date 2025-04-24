@@ -24,7 +24,7 @@ body {
 }
 
 h1 {
-    font-size: 32px;
+    font-size: 24px;
     letter-spacing: 1px;
     margin: 0 0 24px;
     color: #fafafa;
@@ -50,11 +50,13 @@ button:active {
 #start-capture-btn,
 #stop-capture-btn {
     display: block;
+    width: 100%;
     max-width: 320px;
     margin: 0.5em auto;
     background-color: #e53e3e;
     color: #fafafa;
     font-weight: 600;
+    font-size: 14px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 #start-capture-btn:hover,

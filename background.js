@@ -563,8 +563,8 @@ async function startTabCapture() {
         const tab = await chrome.tabs.get(targetTabIdForCapture);
         if(tab.windowId) {
             await setWindowFullscreen(tab.windowId);
-            // --- ADDED: Short delay after fullscreen ---
-            await new Promise(resolve => setTimeout(resolve, 250)); // 250ms delay
+            // --- Added: Small timeout after going fullscreen to stabilize ---
+            await new Promise(resolve => setTimeout(resolve, 750)); // 750ms delay
             console.log("Background: Delay complete after fullscreen.");
             // --- END ADDITION ---
         }
@@ -614,9 +614,8 @@ async function startDesktopCapture(desktopStreamId) {
         try {
             const tab = await chrome.tabs.get(captureTabId);
             if (tab.windowId) {
-                await setWindowFullscreen(tab.windowId);
-                // --- ADDED: Short delay after fullscreen ---
-                await new Promise(resolve => setTimeout(resolve, 250)); // 250ms delay
+                // --- Added: Small timeout after going fullscreen to stabilize ---
+                await new Promise(resolve => setTimeout(resolve, 750)); // 750ms delay
                 console.log("Background: Delay complete after fullscreen.");
                 // --- END ADDITION ---
             }
@@ -655,7 +654,7 @@ async function setWindowFullscreen(windowId) {
     fullscreenedWindow = { id: windowId, previousState: previousState };
     console.log(`Stored previous state '${previousState}' for window ${windowId}.`);
 
-    await chrome.windows.update(windowId, { state: 'fullscreen' });
+    await chrome.windows.update(windowId, { state: 'fullscreen', focused: true });
     console.log(`Window ${windowId} successfully set to fullscreen.`);
 
   } catch (error) {
