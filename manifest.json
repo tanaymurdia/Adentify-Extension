@@ -25,19 +25,13 @@
     "default_icon": {
       "128": "icon128.png"
     },
-    "default_title": "Start Recording"
+    "default_title": "Start Recording",
+    "default_popup": "launcher.html"
   },
   "icons": {
     "128": "icon128.png"
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content_script.bundle.js"],
-      "css": ["overlay.css"],
-      "run_at": "document_end"
-    }
-  ],
+  "content_scripts": [],
   "web_accessible_resources": [
     {
       "resources": [

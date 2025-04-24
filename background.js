@@ -12,19 +12,10 @@ let tabMutedState = {}; // Store the last known muted state { tabId: boolean }
 // --- Fullscreen State Tracking ---
 let fullscreenedWindow = null; // Stores { id: windowId, previousState: windowState }
 
-// Utility to send message to content script
-function sendMessageToContentScript(tabId, message) {
-  if (tabId) {
-    chrome.tabs.sendMessage(tabId, message, { frameId: 0 })
-      .then(() => {
-          // Optional: Log successful send if needed (can be noisy)
-          // console.log(`Background: Successfully sent ${message.type} to tab ${tabId}`);
-      }).catch(error => {
-        // Log error if sending fails (important!)
-        console.error(`Background: Could not send message ${message.type} to tab ${tabId} (frame 0):`, error.message);
-      });
-  }
-}
+// At the top, declare lastPrediction
+let lastPrediction = null; // Store most recent onnx prediction
+
+// Stub sendMessageToContentScript to no-op (UI moved to popup)
 
 // 1. Action Clicked: Toggle the overlay UI in the active tab
 chrome.action.onClicked.addListener(async (tab) => {
@@ -104,93 +95,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       switch (message.type) {
           case 'offscreen-recording-started':
               isCaptureActive = true;
-              // recordedChunks = []; // REMOVED
-              const tabToNotifyStart = targetTabIdForCapture || captureTabId;
-              if (tabToNotifyStart) {
-                  sendMessageToContentScript(tabToNotifyStart, { type: 'capture-state-active' });
-              }
+              // Notify launcher popup of active state
+              chrome.runtime.sendMessage({ type: 'capture-state-active' });
               break;
           case 'offscreen-recording-stopped':
-              // --- MODIFIED: Explicitly unmute tab and restore window state on stop ---
-              const tabToNotifyStop = targetTabIdForCapture || captureTabId;
-              const windowIdToRestore = fullscreenedWindow?.id; // Get window ID before cleanup
-              console.log(`Background: Received offscreen-recording-stopped. Cleaning up state, unmuting tab: ${tabToNotifyStop}, restoring window: ${windowIdToRestore}`);
-
-              // Cleanup internal state first (this clears targetTabIdForCapture and captureTabId)
               cleanupState(); // This will also call restoreWindowState
-
-              // Now, unmute the tab (if we have an ID)
-              if (tabToNotifyStop) {
-                  chrome.tabs.update(tabToNotifyStop, { muted: false })
-                    .then(() => {
-                        console.log(`Background: Successfully unmuted tab ${tabToNotifyStop} on stop.`);
-                        delete tabMutedState[tabToNotifyStop]; // Clear tracked mute state for this tab
-                    })
-                    .catch(error => {
-                        // This might happen if the tab was closed before stopping
-                        console.warn(`Background: Failed to unmute tab ${tabToNotifyStop} on stop (maybe it was closed?):`, error.message);
-                    });
-                  
-                  // Send inactive state message to content script
-                  sendMessageToContentScript(tabToNotifyStop, { type: 'capture-state-inactive' });
-              } else {
-                  console.warn("Background: offscreen-recording-stopped received, but no target tab ID found to unmute or notify.");
-              }
-              // --- END MODIFICATION ---
+              // Notify launcher popup of inactive state
+              chrome.runtime.sendMessage({ type: 'capture-state-inactive' });
               break;
           case 'offscreen-error':
               const error = message.payload?.error || 'Unknown error';
               console.error("Received error from offscreen document:", error);
               stopCapture(); // Stop potentially active capture
-              const errorTabToNotify = targetTabIdForCapture || captureTabId;
-              if (errorTabToNotify) {
-                  sendMessageToContentScript(errorTabToNotify, {
-                      type: 'capture-state-inactive',
-                      payload: { error: `Offscreen recording error: ${error}` }
-                  });
-              }
+              // Notify launcher popup of error state
+              chrome.runtime.sendMessage({
+                  type: 'capture-state-inactive',
+                  payload: { error: `Offscreen recording error: ${error}` }
+              });
               break;
-          // case 'new-chunk': // REMOVED - Handler no longer needed
-          //     if (message.payload?.chunk) {
-          //         // recordedChunks.push(message.payload.chunk); // REMOVED
-          //     } else {
-          //         console.warn("Received 'new-chunk' message without chunk data.");
-          //     }
-          //     break;
           case 'preview-frame':
-              const targetPreviewTab = targetTabIdForCapture || captureTabId;
-              if (isCaptureActive && targetPreviewTab && message.payload?.frameDataUrl) {
-                  sendMessageToContentScript(targetPreviewTab, {
+              // Broadcast preview frame to launcher popup
+              if (message.payload?.frameDataUrl) {
+                  chrome.runtime.sendMessage({
                       type: 'preview-frame',
                       payload: { frameDataUrl: message.payload.frameDataUrl }
                   });
               }
               break;
           case 'onnxPrediction':
-              // --- MODIFIED: Handle Muting ---
-              if (isCaptureActive && message.payload?.prediction && message.payload?.tabId) {
-                  const { prediction, tabId } = message.payload;
-                  // Forward prediction to content script (optional, keep if needed for UI)
-                  sendMessageToContentScript(tabId, {
+              if (isCaptureActive && message.payload?.prediction) {
+                  const { prediction } = message.payload;
+                  // Save latest prediction for popups that open later
+                  lastPrediction = prediction;
+                  // Broadcast prediction to launcher popup as well
+                  chrome.runtime.sendMessage({
                       type: 'onnxPrediction',
                       payload: { prediction: prediction }
                   });
-
+                  
                   // Determine mute state based on prediction
                   // --- UPDATED: Check against the correct string --- 
                   const shouldBeMuted = prediction !== "Basketball Detected"; 
 
                   // Check if the state actually needs changing
-                  if (tabMutedState[tabId] !== shouldBeMuted) {
-                     console.log(`Background: Updating mute state for tab ${tabId} to ${shouldBeMuted} based on prediction: ${prediction}`);
-                      chrome.tabs.update(tabId, { muted: shouldBeMuted })
+                  if (tabMutedState[message.payload.tabId] !== shouldBeMuted) {
+                     console.log(`Background: Updating mute state for tab ${message.payload.tabId} to ${shouldBeMuted} based on prediction: ${prediction}`);
+                      chrome.tabs.update(message.payload.tabId, { muted: shouldBeMuted })
                         .then(() => {
-                            tabMutedState[tabId] = shouldBeMuted; // Update tracked state
+                            tabMutedState[message.payload.tabId] = shouldBeMuted; // Update tracked state
                         })
                         .catch(error => {
-                            console.error(`Background: Failed to update mute state for tab ${tabId}:`, error);
+                            console.error(`Background: Failed to update mute state for tab ${message.payload.tabId}:`, error);
                             // Consider removing tabId from tabMutedState if update fails
-                            delete tabMutedState[tabId];
+                            delete tabMutedState[message.payload.tabId];
                         });
                   }
               } else {
@@ -199,7 +156,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     payload: message.payload
                  });
               }
-              // --- END MODIFICATION ---
               break;
       }
       return false; // Indicate message handled, stop processing
@@ -209,6 +165,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Only process these if not handled above
   console.log(`Background: Received message type ${message.type} from content/launcher.`);
   switch (message.type) {
+    case 'request-capture-state':
+      console.log("Background: Received request-capture-state from popup.");
+      // Include which tab is being captured so the popup can adjust UI
+      const activeTabId = targetTabIdForCapture || captureTabId;
+      sendResponse({ success: true, isActive: isCaptureActive, targetTabId: activeTabId });
+      return false;
     case 'request-start-tab-capture':
         console.log("Received request-start-tab-capture.");
         needsAsyncResponse = true;
@@ -219,13 +181,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 sendResponse({ success: false, error: "Capture already active" });
                 return;
             }
-            if (!sender.tab) {
-                 console.error("Cannot start tab capture, no sender tab identified.");
-                 sendResponse({ success: false, error: "No sender tab identified" });
-                 return;
+            // Determine target tab ID: prefer message.tabId from popup, fallback to sender.tab.id
+            const tabId = message.tabId ?? sender.tab?.id;
+            if (!tabId) {
+                console.error("Cannot start tab capture, no target tab identified.");
+                sendResponse({ success: false, error: "No target tab identified" });
+                return;
             }
-            targetTabIdForCapture = sender.tab.id;
-            captureTabId = sender.tab.id;
+            targetTabIdForCapture = tabId;
+            captureTabId = tabId;
             console.log(`Tab capture initiated for tab ID: ${targetTabIdForCapture}`);
 
             // --- Request Permission HERE (Directly) --- 
@@ -343,6 +307,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Don't send response immediately, wait for confirmation from offscreen
         // sendResponse({ success: true }); // removed
         break;
+
+    case 'request-last-prediction':
+        sendResponse({ success: true, prediction: lastPrediction });
+        return false;
+
+    case 'request-switch-tab-capture':
+        console.log(`Received request-switch-tab-capture for tab ${message.tabId}`);
+        // Switch capture to a new tab: stop then start after delay
+        if (isCaptureActive) {
+            stopCapture();
+            // After allowing offscreen to fully stop, start on new tab
+            setTimeout(() => {
+                const newTab = message.tabId;
+                if (newTab) {
+                    targetTabIdForCapture = newTab;
+                    captureTabId = newTab;
+                    console.log(`Background: Switching capture to tab ${newTab}`);
+                    startTabCapture();
+                }
+            }, 500);
+        } else if (message.tabId) {
+            targetTabIdForCapture = message.tabId;
+            captureTabId = message.tabId;
+            console.log(`Background: Starting capture on tab ${message.tabId}`);
+            startTabCapture();
+        }
+        sendResponse({ success: true });
+        return false;
 
     default:
       // This log should now only appear for truly unknown message types

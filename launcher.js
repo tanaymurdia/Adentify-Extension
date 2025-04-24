@@ -2,66 +2,44 @@
 
 console.log("Launcher script started.");
 
-const statusElement = document.getElementById('status');
-const recordDesktopButton = document.getElementById('record-desktop');
-const recordTabButton = document.getElementById('record-tab');
+const recordTabButton = document.getElementById('start-capture-btn');
+const stopCaptureButton = document.getElementById('stop-capture-btn');
+const previewToggleButton = document.getElementById('adentify-preview-toggle-btn');
+const predictionDisplay = document.getElementById('adentify-prediction');
 
 // Update status function
 function updateStatus(message) {
-    if (statusElement) {
-        statusElement.textContent = message;
-    }
+    // no-op: status messages removed
     console.log("Launcher status:", message);
 }
 
 // --- Event Listeners for Buttons ---
 
-if (recordDesktopButton) {
-    recordDesktopButton.addEventListener('click', () => {
-        updateStatus('Requesting desktop/window selection...');
-        recordDesktopButton.disabled = true; // Disable buttons
-        recordTabButton.disabled = true;
+// Removed desktop capture option entirely
 
-        chrome.desktopCapture.chooseDesktopMedia(
-            ["screen", "window"], // Only offer screen/window for this button
-            (streamId, options) => {
-                if (streamId) {
-                    console.log('Desktop Stream ID selected:', streamId, 'Options:', options);
-                    updateStatus('Stream selected. Sending to background...');
-                    chrome.runtime.sendMessage({
-                        type: 'capture-stream-id-selected',
-                        streamId: streamId,
-                        options: options
-                    }, (response) => {
-                        handleBackgroundResponse(response, "Desktop stream ID sent successfully.");
-                    });
-                } else {
-                    console.log('User cancelled desktop media selection.');
-                    updateStatus('Desktop media selection cancelled. Closing...');
-                    chrome.runtime.sendMessage({ type: 'capture-stream-id-cancelled' }, (response) => {
-                         handleBackgroundResponse(response, "Cancellation sent.");
-                    });
-                }
-            }
-        );
+// Stop Capture Button
+if (stopCaptureButton) {
+    stopCaptureButton.addEventListener('click', () => {
+        updateStatus('Stopping capture...');
+        stopCaptureButton.disabled = true;
+        // Request background to stop capture
+        chrome.runtime.sendMessage({ type: 'request-stop-capture' });
+        // Close launcher popup after a short delay
+        setTimeout(() => window.close(), 500);
     });
 } else {
-    console.error("'record-desktop' button not found.");
+    console.error("'stop-capture-btn' button not found.");
 }
 
-if (recordTabButton) {
-    recordTabButton.addEventListener('click', () => {
-        updateStatus('Requesting tab capture start...');
-        recordDesktopButton.disabled = true; // Disable buttons
-        recordTabButton.disabled = true;
-
-        // Send message to background script to initiate tab capture
-        chrome.runtime.sendMessage({ type: 'request-start-tab-capture' }, (response) => {
-            handleBackgroundResponse(response, "Tab capture request sent.");
-        });
+// Preview Toggle Button
+if (previewToggleButton) {
+    previewToggleButton.addEventListener('click', () => {
+        const ui = document.getElementById('adentify-ui');
+        if (ui) {
+            ui.classList.toggle('preview-hidden');
+            previewToggleButton.textContent = ui.classList.contains('preview-hidden') ? 'Show Preview' : 'Hide Preview';
+        }
     });
-} else {
-    console.error("'record-tab' button not found.");
 }
 
 // --- Helper for Handling Background Response & Closing Window ---
@@ -84,7 +62,6 @@ function handleBackgroundResponse(response, successMessage) {
         updateStatus(`Error: ${errorMessage}`);
         console.warn("Background script response indicates failure:", response);
         // Re-enable buttons if process failed early
-        if (recordDesktopButton) recordDesktopButton.disabled = false;
         if (recordTabButton) recordTabButton.disabled = false;
     }
 }
@@ -101,10 +78,111 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
+// Combined listener for preview frames and predictions
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // Handle preview frame
+    if (message.type === 'preview-frame' && message.payload?.frameDataUrl) {
+        const canvas = document.getElementById('adentify-preview-canvas');
+        if (canvas) {
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            img.onload = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            };
+            img.src = message.payload.frameDataUrl;
+            const ui = document.getElementById('adentify-ui');
+            if (ui) {
+                ui.classList.remove('hidden');
+                ui.classList.add('recording-active');
+            }
+        }
+        sendResponse({ status: 'preview-received' });
+        return true;
+    }
+    // Handle prediction update
+    if (message.type === 'onnxPrediction' && message.payload?.prediction) {
+        const ui = document.getElementById('adentify-ui');
+        if (ui) {
+            ui.classList.remove('hidden');
+            ui.classList.add('recording-active');
+        }
+        // Determine display text
+        const pred = message.payload.prediction;
+        const text = pred === 'Basketball Detected' ? 'Basketball' : 'No Basketball';
+        // Update overlay-styled element if present
+        if (predictionDisplay) {
+            predictionDisplay.textContent = text;
+            if (text === 'Basketball') {
+                predictionDisplay.classList.add('prediction-basketball');
+            } else {
+                predictionDisplay.classList.remove('prediction-basketball');
+            }
+        }
+        // Always update the launcher-specific prediction paragraph
+        const launchPred = document.getElementById('launcher-prediction');
+        if (launchPred) {
+            launchPred.textContent = `Prediction: ${text}`;
+        }
+        sendResponse({ status: 'prediction-updated' });
+        return false;
+    }
+    // Let other listeners handle other message types (e.g., close-launcher)
+});
+
 // --- Initial State ---
 
 document.addEventListener('DOMContentLoaded', () => {
-    updateStatus('Ready. Choose recording type.');
+    // Determine button states based on capture info and current tab
+    chrome.runtime.sendMessage({ type: 'request-capture-state' }, (resp) => {
+        if (chrome.runtime.lastError || !resp?.success) return;
+        const isActive = resp.isActive;
+        const targetTabId = resp.targetTabId;
+        // Get current active tab ID
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            const currentTabId = tabs[0]?.id;
+            if (!isActive) {
+                // Not capturing: show Start Adentifying
+                if (recordTabButton) {
+                    recordTabButton.textContent = 'Start Adentifying';
+                    recordTabButton.style.display = 'block';
+                    recordTabButton.onclick = () => {
+                        chrome.runtime.sendMessage({ type: 'request-start-tab-capture', tabId: currentTabId });
+                        window.close();
+                    };
+                }
+                if (stopCaptureButton) stopCaptureButton.style.display = 'none';
+            } else {
+                if (currentTabId === targetTabId) {
+                    // Capturing on this tab: show Stop Adentifying
+                    if (recordTabButton) recordTabButton.style.display = 'none';
+                    if (stopCaptureButton) {
+                        stopCaptureButton.textContent = 'Stop Adentifying';
+                        stopCaptureButton.style.display = 'block';
+                    }
+                } else {
+                    // Capturing on another tab: allow switch
+                    if (recordTabButton) {
+                        recordTabButton.textContent = 'Start Adentifying here';
+                        recordTabButton.style.display = 'block';
+                        recordTabButton.onclick = () => {
+                            chrome.runtime.sendMessage({ type: 'request-switch-tab-capture', tabId: currentTabId });
+                            window.close();
+                        };
+                    }
+                    if (stopCaptureButton) stopCaptureButton.style.display = 'none';
+                }
+            }
+        });
+    });
+    // Load last known prediction
+    chrome.runtime.sendMessage({ type: 'request-last-prediction' }, (r) => {
+        if (!chrome.runtime.lastError && r?.success && r.prediction) {
+            const txt = r.prediction === 'Basketball Detected' ? 'Basketball' : 'No Basketball';
+            const lp = document.getElementById('launcher-prediction');
+            if (lp) lp.textContent = `Prediction: ${txt}`;
+        }
+    });
 });
 
 console.log("Launcher script loaded and listeners attached."); 
