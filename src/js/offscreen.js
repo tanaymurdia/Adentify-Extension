@@ -15,6 +15,7 @@ const mimeType = 'video/webm;codecs=vp9';
 const CHUNK_TIMESLICE_MS = 1000; // Send chunks every 1 second
 const PREVIEW_FRAME_RATE = 1; // Lower frame rate to ~1 FPS for worker processing
 const PREVIEW_QUALITY = 0.6; // JPEG quality for preview frames (0.0 to 1.0)
+const INFERENCE_THROTTLE_MS = 50; // ms delay between inference frames to throttle CPU usage
 
 // Listen for messages from the background script
 chrome.runtime.onMessage.addListener(async (message) => {
@@ -227,12 +228,9 @@ async function startPreview(stream) {
                 await previewVideoElement.play();
                 console.log("Offscreen: Preview video element playing.");
 
-                // Start the frame grabbing loop using setInterval
-                if (!previewIntervalId) { // Prevent starting multiple intervals
-                   const intervalMs = 1000 / PREVIEW_FRAME_RATE;
-                   previewIntervalId = setInterval(grabFrame, intervalMs);
-                   console.log(`Offscreen: setInterval loop started (Interval: ${intervalMs.toFixed(0)}ms).`);
-                }
+                // Kick off the first inference frame (handshake scheduling)
+                grabFrame();
+                console.log("Offscreen: First inference frame triggered via handshake.");
             } catch (playError) {
                  console.error("Offscreen: Error playing preview video:", playError);
                  stopPreview();
@@ -360,6 +358,8 @@ function initializeWorker() {
                          tabId: capturedTabId
                          }
                 });
+                // After receiving a result, schedule the next inference frame with throttle
+                setTimeout(grabFrame, INFERENCE_THROTTLE_MS);
             } else if (event.data?.type === 'status') {
                 console.log("Offscreen: ONNX Worker Status:", event.data.message);
             } else if (event.data && event.data.type === 'workerError') {

@@ -5,6 +5,12 @@ importScripts('ort.min.js');
 
 // --- Global variables ---
 let ortSession = null;
+// Smarter temporal smoothing: buffer + hysteresis thresholds
+let scoreBuffer = [];
+const BUFFER_SIZE = 5;         // Number of recent frames to average
+const UPPER_THRESHOLD = 0.6;   // Threshold to enter Basketball state
+const LOWER_THRESHOLD = 0.4;   // Threshold to exit Basketball state
+let lastState = null;          // Previous classification state
 const modelPath = "models/hypernetwork_basketball_classifier_quantized.onnx"; // <<<--- Using the actual model path
 const TARGET_WIDTH = 224;
 const TARGET_HEIGHT = 224;
@@ -118,9 +124,31 @@ self.onmessage = async (event) => {
             const outputTensor = results[outputName];
             
             // Output shape is likely [1, 1], data is Float32Array with one element
-            const score = outputTensor.data[0]; 
-            const isBasketball = score > 0.5; 
-            const prediction = isBasketball ? "Basketball Detected" : "No Basketball";
+            const score = outputTensor.data[0];
+
+            // Update rolling buffer
+            scoreBuffer.push(score);
+            if (scoreBuffer.length > BUFFER_SIZE) {
+                scoreBuffer.shift();
+            }
+
+            // Compute average score over buffer
+            const averageScore = scoreBuffer.reduce((a, b) => a + b, 0) / scoreBuffer.length;
+
+            // Hysteresis-based state transition
+            let newState;
+            if (lastState === null) {
+                newState = averageScore > UPPER_THRESHOLD;
+            } else if (!lastState && averageScore > UPPER_THRESHOLD) {
+                newState = true;
+            } else if (lastState && averageScore < LOWER_THRESHOLD) {
+                newState = false;
+            } else {
+                newState = lastState;
+            }
+            lastState = newState;
+
+            const prediction = newState ? "Basketball Detected" : "No Basketball";
             // console.log(`Score: ${score.toFixed(4)}, Prediction: ${prediction}`); // Log score and result
 
             // 5. Send prediction back
