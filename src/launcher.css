@@ -245,11 +245,13 @@ button:active {
 #settings-drawer {
   position: fixed;
   top: 0;
+  bottom: 0;
   left: 0;
-  height: 100%;
-  width: 280px;
+  min-width: 320px;
   max-width: 80%;
-  background-color: #1f1f1f;
+  background-color: rgba(31, 31, 31, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   box-shadow: 2px 0 8px rgba(0,0,0,0.5);
   z-index: 2;
   display: flex;
@@ -278,15 +280,51 @@ button:active {
 }
 .drawer-content {
   flex: 1;
-  padding: 16px;
+  padding: 24px;
 }
 .setting-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  gap: 16px !important;
+  margin-bottom: 24px !important;
   color: #e0e0e0;
   font-size: 14px;
+}
+/* Specific layout for the tab-selector field to improve spacing */
+.tab-selector-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px !important;
+  margin-bottom: 32px !important;
+}
+.tab-selector-item select {
+  flex: none;
+  margin-top: 8px !important;
+  padding: 10px 14px !important;
+  display: block;
+  align-self: stretch;
+  /* Truncate long tab titles */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.setting-item select, #tab-selector {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #e53e3e;
+  background-color: #2a2a2a;
+  color: #e0e0e0;
+  font-size: 14px;
+  cursor: pointer;
+  appearance: none;
+  /* Optional: custom arrow indicator */
+  background-image: url("data:image/svg+xml;utf8,<svg fill='%23e0e0e0' height='8' viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'><path d='M0 0l5 6 5-6z'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 10px 6px;
 }
 /* Toggle Switch */
 .switch {
@@ -327,4 +365,16 @@ button:active {
 }
 .switch input:checked + .slider:before {
   transform: translateX(20px);
+}
+
+/* Blur everything except drawer when settings is open */
+body.settings-open > :not(#settings-drawer):not(#settings-btn) {
+  filter: blur(8px);
+  transition: filter 0.2s ease;
+}
+
+/* After the generic select styles, override for tab selector */
+#settings-drawer .tab-selector-item select {
+  /* Prevent flex-grow and let it span full drawer width */
+  flex: none;
 } 

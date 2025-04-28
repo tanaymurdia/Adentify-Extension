@@ -6,8 +6,8 @@ importScripts('ort.min.js');
 // --- Global variables ---
 let ortSession = null;
 // Smarter temporal smoothing: buffer + hysteresis thresholds
-let scoreBuffer = [];
-const BUFFER_SIZE = 5;         // Number of recent frames to average
+const SMOOTHING_ALPHA = 0.2;   // EMA smoothing factor (0-1)
+let emaScore = null;           // Exponential moving average state
 const UPPER_THRESHOLD = 0.6;   // Threshold to enter Basketball state
 const LOWER_THRESHOLD = 0.4;   // Threshold to exit Basketball state
 let lastState = null;          // Previous classification state
@@ -126,14 +126,11 @@ self.onmessage = async (event) => {
             // Output shape is likely [1, 1], data is Float32Array with one element
             const score = outputTensor.data[0];
 
-            // Update rolling buffer
-            scoreBuffer.push(score);
-            if (scoreBuffer.length > BUFFER_SIZE) {
-                scoreBuffer.shift();
-            }
-
-            // Compute average score over buffer
-            const averageScore = scoreBuffer.reduce((a, b) => a + b, 0) / scoreBuffer.length;
+            // Update exponential moving average for smoothing
+            emaScore = emaScore === null
+                ? score
+                : SMOOTHING_ALPHA * score + (1 - SMOOTHING_ALPHA) * emaScore;
+            const averageScore = emaScore;
 
             // Hysteresis-based state transition
             let newState;

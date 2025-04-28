@@ -15,7 +15,7 @@ const mimeType = 'video/webm;codecs=vp9';
 const CHUNK_TIMESLICE_MS = 1000; // Send chunks every 1 second
 const PREVIEW_FRAME_RATE = 1; // Lower frame rate to ~1 FPS for worker processing
 const PREVIEW_QUALITY = 0.6; // JPEG quality for preview frames (0.0 to 1.0)
-const INFERENCE_THROTTLE_MS = 50; // ms delay between inference frames to throttle CPU usage
+const INFERENCE_THROTTLE_MS = 200; // ms delay between inference frames to throttle CPU usage
 
 // Listen for messages from the background script
 chrome.runtime.onMessage.addListener(async (message) => {

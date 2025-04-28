@@ -16,6 +16,7 @@ const recordTabButton = document.getElementById('start-capture-btn');
 const stopCaptureButton = document.getElementById('stop-capture-btn');
 const previewToggleButton = document.getElementById('adentify-preview-toggle-btn');
 const predictionDisplay = document.getElementById('adentify-prediction');
+let selectedTabId = null;
 
 // Define UI states and central state management
 const UIState = {
@@ -42,7 +43,8 @@ function updateUI(state, currentTabId, targetTabId) {
         recordTabButton.disabled = false;
         recordTabButton.style.display = 'block';
         recordTabButton.onclick = () => {
-          chrome.runtime.sendMessage({ type: 'request-start-tab-capture', tabId: currentTabId });
+          const tabToCapture = selectedTabId || currentTabId;
+          chrome.runtime.sendMessage({ type: 'request-start-tab-capture', tabId: tabToCapture });
           setState(UIState.CAPTURING);
         };
       }
@@ -76,7 +78,8 @@ function updateUI(state, currentTabId, targetTabId) {
         recordTabButton.disabled = false;
         recordTabButton.style.display = 'block';
         recordTabButton.onclick = () => {
-          chrome.runtime.sendMessage({ type: 'request-switch-tab-capture', tabId: currentTabId });
+          const tabToCapture = selectedTabId || currentTabId;
+          chrome.runtime.sendMessage({ type: 'request-switch-tab-capture', tabId: tabToCapture });
           setState(UIState.CAPTURING);
         };
       }
@@ -257,9 +260,30 @@ document.addEventListener('DOMContentLoaded', () => {
             const open = settingsBtn.classList.toggle('open');
             if (open) {
                 settingsDrawer.classList.remove('hidden');
+                document.body.classList.add('settings-open');
             } else {
                 settingsDrawer.classList.add('hidden');
+                document.body.classList.remove('settings-open');
             }
+        });
+        // Close button inside drawer header
+        const settingsCloseBtn = document.getElementById('settings-close-btn');
+        if (settingsCloseBtn) {
+            settingsCloseBtn.addEventListener('click', () => {
+                settingsBtn.classList.remove('open');
+                settingsDrawer.classList.add('hidden');
+                document.body.classList.remove('settings-open');
+            });
+        }
+        // Clicking outside the drawer closes it
+        document.addEventListener('click', (e) => {
+            if (!settingsBtn.classList.contains('open')) return;
+            const target = e.target;
+            if (settingsDrawer.contains(target) || settingsBtn.contains(target)) return;
+            // Click outside drawer and button
+            settingsBtn.classList.remove('open');
+            settingsDrawer.classList.add('hidden');
+            document.body.classList.remove('settings-open');
         });
     }
     // Adaptive sound toggle: inform background of initial state and listen for changes
@@ -269,6 +293,30 @@ document.addEventListener('DOMContentLoaded', () => {
         chrome.runtime.sendMessage({ type: 'set-adaptive-sound', enabled: adaptiveToggle.checked });
         adaptiveToggle.addEventListener('change', () => {
             chrome.runtime.sendMessage({ type: 'set-adaptive-sound', enabled: adaptiveToggle.checked });
+        });
+    }
+    // Populate tab selector with all open tabs and listen for selection changes
+    const tabSelector = document.getElementById('tab-selector');
+    if (tabSelector) {
+        // Query all open tabs in Chrome
+        chrome.tabs.query({}, (tabs) => {
+            tabs.forEach(tab => {
+                const option = document.createElement('option');
+                option.value = tab.id;
+                option.textContent = tab.title || tab.url;
+                tabSelector.appendChild(option);
+            });
+            // Set default to the currently active tab in this window
+            chrome.tabs.query({ active: true, currentWindow: true }, (activeTabs) => {
+                if (activeTabs[0]) {
+                    tabSelector.value = activeTabs[0].id;
+                    selectedTabId = activeTabs[0].id;
+                }
+            });
+        });
+        tabSelector.addEventListener('change', () => {
+            selectedTabId = parseInt(tabSelector.value, 10);
+            console.log('Selected tab ID:', selectedTabId);
         });
     }
 });

@@ -40,6 +40,7 @@
     <!-- Settings Drawer -->
     <div id="settings-drawer" class="hidden">
       <div class="drawer-header">
+        <!-- <button id="settings-close-btn" aria-label="Close settings">×</button> -->
         <h2>Settings</h2>
       </div>
       <div class="drawer-content">
@@ -49,6 +50,12 @@
             <input type="checkbox" id="adaptive-sound-toggle" checked>
             <span class="slider"></span>
           </label>
+        </div>
+        <div class="setting-item tab-selector-item">
+          <span>Select tab to switch to</span>
+          <select id="tab-selector">
+            <!-- options will be populated by JS -->
+          </select>
         </div>
       </div>
     </div>
