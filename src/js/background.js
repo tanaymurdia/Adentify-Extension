@@ -17,6 +17,12 @@ let lastPrediction = null; // Store most recent onnx prediction
 // Adaptive sound toggle state (on by default)
 let adaptiveSoundEnabled = true;
 
+let fallbackTabId = null;
+let lastBasketballState = null;
+
+// At top of file, after captureTabId etc
+let uiActiveTabId = null; // Track which tab is currently visible to user for switching UI
+
 // Stub sendMessageToContentScript to no-op (UI moved to popup)
 
 // 1. Action Clicked: Toggle the overlay UI in the active tab
@@ -71,7 +77,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // Check if the message type is known to come from offscreen
   // (message.target === 'offscreen' isn't reliable if sender is the background script itself)
   if (offscreenMessageTypes.includes(message.type)) {
-      console.log(`Background: Received message type ${message.type} from offscreen.`);
+      // Removed generic offscreen message log for brevity
       switch (message.type) {
           case 'offscreen-recording-started':
               isCaptureActive = true;
@@ -112,42 +118,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           case 'onnxPrediction':
               if (isCaptureActive && message.payload?.prediction) {
                   const { prediction } = message.payload;
-                  // Save latest prediction for popups that open later
+                  // Log classifier result with context
+                  const activeTab = targetTabIdForCapture || captureTabId;
+                  console.log(`Background: Classifier result: ${prediction} (activeTabId: ${activeTab}, fallbackTabId: ${fallbackTabId})`);
                   lastPrediction = prediction;
-                  // Broadcast prediction to launcher popup as well
-                  chrome.runtime.sendMessage({
-                      type: 'onnxPrediction',
-                      payload: { prediction: prediction }
-                  });
-                  
-                  // Determine mute state based on prediction
-                  const shouldBeMuted = prediction !== "Basketball Detected";
+                  // Broadcast prediction to launcher popup
+                  chrome.runtime.sendMessage({ type: 'onnxPrediction', payload: { prediction } });
+
+                  // Mute/unmute logic
+                  const shouldBeMuted = prediction !== 'Basketball Detected';
                   if (adaptiveSoundEnabled) {
-                      // Only update mute if adaptive sound is enabled
                       if (tabMutedState[message.payload.tabId] !== shouldBeMuted) {
-                         console.log(`Background: Updating mute state for tab ${message.payload.tabId} to ${shouldBeMuted} based on prediction: ${prediction}`);
+                          console.log(`Background: Updating mute state for tab ${message.payload.tabId} to ${shouldBeMuted} based on prediction: ${prediction}`);
                           chrome.tabs.update(message.payload.tabId, { muted: shouldBeMuted })
-                            .then(() => {
-                                tabMutedState[message.payload.tabId] = shouldBeMuted;
-                            })
-                            .catch(error => {
-                                console.error(`Background: Failed to update mute state for tab ${message.payload.tabId}:`, error);
-                                delete tabMutedState[message.payload.tabId];
-                            });
+                            .then(() => { tabMutedState[message.payload.tabId] = shouldBeMuted; })
+                            .catch(err => { console.error('Background: Failed to update mute state:', err); delete tabMutedState[message.payload.tabId]; });
                       }
                   } else {
-                      // Adaptive sound disabled: ensure tab is unmuted if it was muted
                       if (tabMutedState[message.payload.tabId]) {
                           chrome.tabs.update(message.payload.tabId, { muted: false })
                             .then(() => delete tabMutedState[message.payload.tabId])
-                            .catch(err => console.error(`Background: Failed to unmute tab on adaptive-sound-off:`, err));
+                            .catch(err => console.error('Background: Failed to unmute on adaptive-sound-off:', err));
                       }
                   }
+
+                  // UI switching: only on a change of basketball state
+                  const isBasketball = (prediction === 'Basketball Detected');
+                  if (lastBasketballState === null) {
+                      lastBasketballState = isBasketball;
+                  } else if (isBasketball !== lastBasketballState) {
+                      const targetTab = isBasketball ? captureTabId : fallbackTabId;
+                      if (targetTab != null) {
+                          console.log(`Background: Switching UI from tab ${uiActiveTabId} to ${targetTab} (basketball=${isBasketball})`);
+                          chrome.tabs.update(targetTab, { active: true })
+                            .then(() => { console.log(`Background: Active tab now ${targetTab}`); uiActiveTabId = targetTab; })
+                            .catch(err => console.error('Background: Tab switch failed', err));
+                      }
+                      lastBasketballState = isBasketball;
+                  }
               } else {
-                 console.warn("Background: Received onnxPrediction but missing data, capture not active, or no target tab.", {
-                    isActive: isCaptureActive,
-                    payload: message.payload
-                 });
+                  console.warn('Background: Received onnxPrediction but no prediction or inactive capture.', message.payload);
               }
               break;
       }
@@ -156,13 +166,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // --- Handle Messages from Content Script / Launcher ---
   // Only process these if not handled above
-  console.log(`Background: Received message type ${message.type} from content/launcher.`);
+  // Only log most content/launcher messages (skip prediction-event)
+  if (message.type !== 'prediction-event') {
+    console.log(`Background: Received message type ${message.type} from content/launcher.`);
+  }
   switch (message.type) {
     case 'request-capture-state':
       console.log("Background: Received request-capture-state from popup.");
-      // Include which tab is being captured so the popup can adjust UI
       const activeTabId = targetTabIdForCapture || captureTabId;
-      sendResponse({ success: true, isActive: isCaptureActive, targetTabId: activeTabId });
+      // Initialize UI active tab to the capture app tab
+      uiActiveTabId = activeTabId;
+      sendResponse({ success: true, isActive: isCaptureActive, targetTabId: activeTabId, fallbackTabId });
       return false;
     case 'set-adaptive-sound':
       adaptiveSoundEnabled = !!message.enabled;
@@ -342,6 +356,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         sendResponse({ success: true });
         return false;
+
+    case 'set-fallback-tab':
+      // Store which tab to switch to when no basketball
+      fallbackTabId = message.tabId;
+      console.log(`Background: Fallback tab set to ${fallbackTabId}`);
+      sendResponse({ success: true });
+      return false;
+
+    case 'prediction-event':
+      const isBasketball = !!message.isBasketball;
+      // First event: just record state
+      if (lastBasketballState === null) {
+        lastBasketballState = isBasketball;
+        sendResponse({ success: true });
+        return false;
+      }
+      // Only switch on state change
+      if (isBasketball !== lastBasketballState) {
+        const target = isBasketball ? captureTabId : fallbackTabId;
+        if (target != null) {
+          // Log switching UI from last uiActiveTabId to target
+          console.log(`Background: Switching UI from tab ${uiActiveTabId} to ${target} (basketball=${isBasketball})`);
+          // Perform the switch
+          chrome.tabs.update(target, { active: true })
+            .then(() => {
+              console.log(`Background: Active tab now ${target}`);
+              uiActiveTabId = target;
+            })
+            .catch(err => console.error('Background: Tab switch failed', err));
+        }
+        lastBasketballState = isBasketball;
+      }
+      sendResponse({ success: true });
+      return false;
 
     default:
       // This log should now only appear for truly unknown message types

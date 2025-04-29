@@ -17,6 +17,9 @@ const stopCaptureButton = document.getElementById('stop-capture-btn');
 const previewToggleButton = document.getElementById('adentify-preview-toggle-btn');
 const predictionDisplay = document.getElementById('adentify-prediction');
 let selectedTabId = null;
+let baseTabId = null;
+// Track whether we're capturing base or selected tab
+let currentSwitchState = null; // 'basketball' or 'selected'
 
 // Define UI states and central state management
 const UIState = {
@@ -43,8 +46,8 @@ function updateUI(state, currentTabId, targetTabId) {
         recordTabButton.disabled = false;
         recordTabButton.style.display = 'block';
         recordTabButton.onclick = () => {
-          const tabToCapture = selectedTabId || currentTabId;
-          chrome.runtime.sendMessage({ type: 'request-start-tab-capture', tabId: tabToCapture });
+          // Always start capture on the current tab, ignoring fallback selection
+          chrome.runtime.sendMessage({ type: 'request-start-tab-capture', tabId: currentTabId });
           setState(UIState.CAPTURING);
         };
       }
@@ -78,8 +81,8 @@ function updateUI(state, currentTabId, targetTabId) {
         recordTabButton.disabled = false;
         recordTabButton.style.display = 'block';
         recordTabButton.onclick = () => {
-          const tabToCapture = selectedTabId || currentTabId;
-          chrome.runtime.sendMessage({ type: 'request-switch-tab-capture', tabId: tabToCapture });
+          // Always switch capture to the tab where the capture launcher was opened
+          chrome.runtime.sendMessage({ type: 'request-switch-tab-capture', tabId: currentTabId });
           setState(UIState.CAPTURING);
         };
       }
@@ -159,7 +162,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-// Combined listener for preview frames and predictions
+// --- Combined listener for preview frames and predictions ---
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Handle preview frame
     if (message.type === 'preview-frame' && message.payload?.frameDataUrl) {
@@ -178,7 +181,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     // Handle prediction update
     if (message.type === 'onnxPrediction' && message.payload?.prediction) {
-        // Determine display text
         const pred = message.payload.prediction;
         const text = pred === 'Basketball Detected' ? 'Basketball' : 'No Basketball';
         // Update overlay-styled element if present
@@ -195,8 +197,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (launchPred) {
             launchPred.textContent = `Prediction: ${text}`;
         }
-        // track whether we're in Basketball mode
-        isBasketballMode = (text === 'Basketball');
+        const isBasketball = (text === 'Basketball');
+        // Notify background of classification so it can handle tab-switching
+        chrome.runtime.sendMessage({ type: 'prediction-event', isBasketball });
         // Adjust cast volume based on prediction only when casting
         if (typeof isCasting === 'function' && isCasting()) {
             if (text === 'Basketball') {
@@ -234,6 +237,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 document.addEventListener('DOMContentLoaded', () => {
     chrome.runtime.sendMessage({ type: 'request-capture-state' }, (resp) => {
         if (chrome.runtime.lastError || !resp?.success) return;
+        // Remember original capture target as baseTabId
+        baseTabId = resp.targetTabId;
+        // Initialize fallback selection from background, if set
+        if (resp.fallbackTabId != null) {
+            selectedTabId = resp.fallbackTabId;
+        }
+        // Update initial UI state based on capture-state
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             const currentTabId = tabs[0]?.id;
             if (!resp.isActive) {
@@ -306,17 +316,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 option.textContent = tab.title || tab.url;
                 tabSelector.appendChild(option);
             });
-            // Set default to the currently active tab in this window
-            chrome.tabs.query({ active: true, currentWindow: true }, (activeTabs) => {
-                if (activeTabs[0]) {
-                    tabSelector.value = activeTabs[0].id;
-                    selectedTabId = activeTabs[0].id;
-                }
-            });
+            // Set default to the fallback selection or active tab if none
+            if (typeof selectedTabId === 'number') {
+                tabSelector.value = selectedTabId;
+            } else {
+                chrome.tabs.query({ active: true, currentWindow: true }, (activeTabs) => {
+                    const act = activeTabs[0];
+                    if (act?.id != null) {
+                        tabSelector.value = act.id;
+                        selectedTabId = act.id;
+                    }
+                });
+            }
         });
         tabSelector.addEventListener('change', () => {
             selectedTabId = parseInt(tabSelector.value, 10);
-            console.log('Selected tab ID:', selectedTabId);
+            console.log('Selected fallback tab ID:', selectedTabId);
+            // Explicitly set the dropdown value in case it resets
+            tabSelector.value = selectedTabId;
+            // Inform background of new fallback tab for UI switching logic
+            chrome.runtime.sendMessage({ type: 'set-fallback-tab', tabId: selectedTabId });
         });
     }
 });
