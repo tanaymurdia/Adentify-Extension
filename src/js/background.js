@@ -150,8 +150,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                       const targetTab = isBasketball ? captureTabId : fallbackTabId;
                       if (targetTab != null) {
                           console.log(`Background: Switching UI from tab ${uiActiveTabId} to ${targetTab} (basketball=${isBasketball})`);
+                          // If returning to basketball capture, pause any videos on fallback before switching
+                          if (isBasketball && fallbackTabId != null) {
+                            chrome.scripting.executeScript({
+                              target: { tabId: fallbackTabId },
+                              func: () => document.querySelectorAll('video').forEach(v => v.pause())
+                            });
+                          }
+                          // Switch the active tab
                           chrome.tabs.update(targetTab, { active: true })
-                            .then(() => { console.log(`Background: Active tab now ${targetTab}`); uiActiveTabId = targetTab; })
+                            .then(() => {
+                              console.log(`Background: Active tab now ${targetTab}`);
+                              uiActiveTabId = targetTab;
+                              // If switching to fallback, play its media
+                              if (!isBasketball) {
+                                chrome.scripting.executeScript({
+                                  target: { tabId: targetTab },
+                                  func: () => document.querySelectorAll('video').forEach(v => v.play())
+                                });
+                              }
+                            })
                             .catch(err => console.error('Background: Tab switch failed', err));
                       }
                       lastBasketballState = isBasketball;
@@ -376,13 +394,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (isBasketball !== lastBasketballState) {
         const target = isBasketball ? captureTabId : fallbackTabId;
         if (target != null) {
-          // Log switching UI from last uiActiveTabId to target
           console.log(`Background: Switching UI from tab ${uiActiveTabId} to ${target} (basketball=${isBasketball})`);
-          // Perform the switch
+          // If returning to basketball capture, pause any videos on fallback before switching
+          if (isBasketball && fallbackTabId != null) {
+            chrome.scripting.executeScript({
+              target: { tabId: fallbackTabId },
+              func: () => document.querySelectorAll('video').forEach(v => v.pause())
+            });
+          }
+          // Switch the active tab
           chrome.tabs.update(target, { active: true })
             .then(() => {
               console.log(`Background: Active tab now ${target}`);
               uiActiveTabId = target;
+              // If switching to fallback, play its media
+              if (!isBasketball) {
+                chrome.scripting.executeScript({
+                  target: { tabId: target },
+                  func: () => document.querySelectorAll('video').forEach(v => v.play())
+                });
+              }
             })
             .catch(err => console.error('Background: Tab switch failed', err));
         }
