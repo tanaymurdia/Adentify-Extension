@@ -40,7 +40,6 @@
         "launcher.bundle.js",
         "launcher.css",
         "assets/adentify-icon.png",
-        "lightning.js",
         "onnx_worker.bundle.js",
         "cast/cast_helpers.js",
         "cast/cast_framework.js"

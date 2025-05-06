@@ -47,8 +47,6 @@ module.exports = {
         },
         // Copy popup assets (e.g. adentify-icon.png)
         { from: 'src/assets', to: 'assets' },
-        // Copy separate lightning script
-        { from: 'src/js/lightning.js', to: '.' }
       ],
     }),
   ],

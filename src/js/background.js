@@ -148,24 +148,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                       lastBasketballState = isBasketball;
                   } else if (isBasketball !== lastBasketballState) {
                       const targetTab = isBasketball ? captureTabId : fallbackTabId;
-                      if (targetTab != null) {
-                          console.log(`Background: Switching UI from tab ${uiActiveTabId} to ${targetTab} (basketball=${isBasketball})`);
-                          // If returning to basketball capture, pause any videos on fallback before switching
+                      if (target != null) {
+                          console.log(`Background: Switching UI from tab ${uiActiveTabId} to ${target} (basketball=${isBasketball})`);
+                          // Pause videos on fallback before switching back to basketball
                           if (isBasketball && fallbackTabId != null) {
                             chrome.scripting.executeScript({
                               target: { tabId: fallbackTabId },
                               func: () => document.querySelectorAll('video').forEach(v => v.pause())
                             });
                           }
-                          // Switch the active tab
-                          chrome.tabs.update(targetTab, { active: true })
+                          // Perform the tab switch
+                          chrome.tabs.update(target, { active: true })
                             .then(() => {
-                              console.log(`Background: Active tab now ${targetTab}`);
-                              uiActiveTabId = targetTab;
-                              // If switching to fallback, play its media
-                              if (!isBasketball) {
+                              console.log(`Background: Active tab now ${target}`);
+                              uiActiveTabId = target;
+                              // Play videos on fallback after switching to fallback
+                              if (!isBasketball && target === fallbackTabId) {
                                 chrome.scripting.executeScript({
-                                  target: { tabId: targetTab },
+                                  target: { tabId: target },
                                   func: () => document.querySelectorAll('video').forEach(v => v.play())
                                 });
                               }
@@ -395,20 +395,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const target = isBasketball ? captureTabId : fallbackTabId;
         if (target != null) {
           console.log(`Background: Switching UI from tab ${uiActiveTabId} to ${target} (basketball=${isBasketball})`);
-          // If returning to basketball capture, pause any videos on fallback before switching
+          // Pause videos on fallback before switching back to basketball
           if (isBasketball && fallbackTabId != null) {
             chrome.scripting.executeScript({
               target: { tabId: fallbackTabId },
               func: () => document.querySelectorAll('video').forEach(v => v.pause())
             });
           }
-          // Switch the active tab
+          // Perform the tab switch
           chrome.tabs.update(target, { active: true })
             .then(() => {
               console.log(`Background: Active tab now ${target}`);
               uiActiveTabId = target;
-              // If switching to fallback, play its media
-              if (!isBasketball) {
+              // Play videos on fallback after switching to fallback
+              if (!isBasketball && target === fallbackTabId) {
                 chrome.scripting.executeScript({
                   target: { tabId: target },
                   func: () => document.querySelectorAll('video').forEach(v => v.play())
@@ -646,15 +646,11 @@ async function startTabCapture() {
         // --- ADDED: Make window fullscreen ---
         const tab = await chrome.tabs.get(targetTabIdForCapture);
         if(tab.windowId) {
-            await setWindowFullscreen(tab.windowId);
-            // --- Added: Small timeout after going fullscreen to stabilize ---
-            await new Promise(resolve => setTimeout(resolve, 750)); // 750ms delay
-            console.log("Background: Delay complete after fullscreen.");
-            // --- END ADDITION ---
+            // await setWindowFullscreen(tab.windowId);
+            console.log(`[${new Date().toISOString()}] Before Background`);
+            await new Promise(resolve => setTimeout(resolve, 2000)); // 750ms delay
+            console.log(`[${new Date().toISOString()}] Background: Delay complete after fullscreen.`);
         }
-        // --- END ADDITION ---
-
-        // Get a media stream ID for the target tab
         const streamId = await chrome.tabCapture.getMediaStreamId({
           targetTabId: targetTabIdForCapture
         });

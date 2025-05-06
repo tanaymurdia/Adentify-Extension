@@ -46,9 +46,17 @@ function updateUI(state, currentTabId, targetTabId) {
         recordTabButton.disabled = false;
         recordTabButton.style.display = 'block';
         recordTabButton.onclick = () => {
-          // Always start capture on the current tab, ignoring fallback selection
-          chrome.runtime.sendMessage({ type: 'request-start-tab-capture', tabId: currentTabId });
-          setState(UIState.CAPTURING);
+          // Try fullscreening the current tab before starting capture
+          chrome.tabs.get(currentTabId, (tab) => {
+            if (tab?.windowId) {
+              chrome.windows.update(tab.windowId, { state: 'fullscreen'});
+            }
+          });
+          // Delay the capture request to allow fullscreen to settle
+          setTimeout(() => {
+            chrome.runtime.sendMessage({ type: 'request-start-tab-capture', tabId: currentTabId });
+            setState(UIState.CAPTURING);
+          }, 2000);
         };
       }
       if (stopCaptureButton) stopCaptureButton.style.display = 'none';
@@ -239,9 +247,22 @@ document.addEventListener('DOMContentLoaded', () => {
         if (chrome.runtime.lastError || !resp?.success) return;
         // Remember original capture target as baseTabId
         baseTabId = resp.targetTabId;
-        // Initialize fallback selection from background, if set
+        // Initialize fallback selection and tab-switch toggle from background
         if (resp.fallbackTabId != null) {
             selectedTabId = resp.fallbackTabId;
+        }
+        const tabSwitchToggle = document.getElementById('tab-switch-toggle');
+        const selectorItem = document.querySelector('.tab-selector-item');
+        if (tabSwitchToggle) {
+            // Set initial toggle state
+            tabSwitchToggle.checked = !!resp.tabSwitchEnabled;
+            // Show/hide selector based on toggle
+            if (selectorItem) selectorItem.style.display = tabSwitchToggle.checked ? 'flex' : 'none';
+            // Notify background when changed
+            tabSwitchToggle.addEventListener('change', () => {
+                chrome.runtime.sendMessage({ type: 'set-tab-switch', enabled: tabSwitchToggle.checked });
+                if (selectorItem) selectorItem.style.display = tabSwitchToggle.checked ? 'flex' : 'none';
+            });
         }
         // Update initial UI state based on capture-state
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
