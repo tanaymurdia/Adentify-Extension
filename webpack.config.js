@@ -7,7 +7,7 @@ module.exports = {
     background: './src/js/background.js',
     offscreen: './src/js/offscreen.js',
     launcher: './src/js/launcher.js',
-    onnx_worker: './src/js/onnx_worker.js'
+    onnx_worker: './src/js/onnx_worker.js',
   },
   output: {
     path: path.resolve(__dirname, 'dist'),

@@ -46,17 +46,18 @@ function updateUI(state, currentTabId, targetTabId) {
         recordTabButton.disabled = false;
         recordTabButton.style.display = 'block';
         recordTabButton.onclick = () => {
-          // Try fullscreening the current tab before starting capture
-          chrome.tabs.get(currentTabId, (tab) => {
-            if (tab?.windowId) {
-              chrome.windows.update(tab.windowId, { state: 'fullscreen'});
+          // Start tab capture immediately
+          const tabId = selectedTabId ?? baseTabId ?? currentTabId;
+          chrome.runtime.sendMessage(
+            { type: 'request-start-tab-capture', tabId },
+            (response) => {
+              if (response?.success) {
+                setState(UIState.CAPTURING, tabId);
+              } else {
+                console.error('Failed to start tab capture', response);
+              }
             }
-          });
-          // Delay the capture request to allow fullscreen to settle
-          setTimeout(() => {
-            chrome.runtime.sendMessage({ type: 'request-start-tab-capture', tabId: currentTabId });
-            setState(UIState.CAPTURING);
-          }, 2000);
+          );
         };
       }
       if (stopCaptureButton) stopCaptureButton.style.display = 'none';

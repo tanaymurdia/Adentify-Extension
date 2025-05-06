@@ -23,6 +23,9 @@ let lastBasketballState = null;
 // At top of file, after captureTabId etc
 let uiActiveTabId = null; // Track which tab is currently visible to user for switching UI
 
+// At top of file, after uiActiveTabId declaration
+let tabSwitchEnabled = false; // Track whether UI switching is enabled
+
 // Stub sendMessageToContentScript to no-op (UI moved to popup)
 
 // 1. Action Clicked: Toggle the overlay UI in the active tab
@@ -63,6 +66,26 @@ async function checkOffscreenPermission() {
 
 // 2. Listen for messages
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Handle page fullscreen changes from content script
+  if (message.type === 'page-fullscreen-change') {
+    const tabId = sender.tab?.id;
+    const windowId = sender.tab?.windowId;
+    console.log(`Background: Tab ${tabId} HTML5 fullscreen state = ${message.isHtml5Full}`);
+    if (windowId != null) {
+      if (message.isHtml5Full) {
+        // Enter OS-level fullscreen for the browser window
+        chrome.windows.update(windowId, { state: 'fullscreen' }, () => {
+          if (chrome.runtime.lastError) console.error('Error entering fullscreen window:', chrome.runtime.lastError.message);
+        });
+      } else {
+        // Exit OS-level fullscreen
+        chrome.windows.update(windowId, { state: 'normal' }, () => {
+          if (chrome.runtime.lastError) console.error('Error exiting fullscreen window:', chrome.runtime.lastError.message);
+        });
+      }
+    }
+    return false;
+  }
   let needsAsyncResponse = false;
 
   // --- Handle Messages FROM Offscreen Document FIRST ---
@@ -148,8 +171,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                       lastBasketballState = isBasketball;
                   } else if (isBasketball !== lastBasketballState) {
                       const targetTab = isBasketball ? captureTabId : fallbackTabId;
-                      if (target != null) {
-                          console.log(`Background: Switching UI from tab ${uiActiveTabId} to ${target} (basketball=${isBasketball})`);
+                      if (targetTab != null) {
+                          console.log(`Background: Switching UI from tab ${uiActiveTabId} to ${targetTab} (basketball=${isBasketball})`);
                           // Pause videos on fallback before switching back to basketball
                           if (isBasketball && fallbackTabId != null) {
                             chrome.scripting.executeScript({
@@ -158,14 +181,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                             });
                           }
                           // Perform the tab switch
-                          chrome.tabs.update(target, { active: true })
+                          chrome.tabs.update(targetTab, { active: true })
                             .then(() => {
-                              console.log(`Background: Active tab now ${target}`);
-                              uiActiveTabId = target;
+                              console.log(`Background: Active tab now ${targetTab}`);
+                              uiActiveTabId = targetTab;
                               // Play videos on fallback after switching to fallback
-                              if (!isBasketball && target === fallbackTabId) {
+                              if (!isBasketball && targetTab === fallbackTabId) {
                                 chrome.scripting.executeScript({
-                                  target: { tabId: target },
+                                  target: { tabId: targetTab },
                                   func: () => document.querySelectorAll('video').forEach(v => v.play())
                                 });
                               }
@@ -194,7 +217,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const activeTabId = targetTabIdForCapture || captureTabId;
       // Initialize UI active tab to the capture app tab
       uiActiveTabId = activeTabId;
-      sendResponse({ success: true, isActive: isCaptureActive, targetTabId: activeTabId, fallbackTabId });
+      // Include current tab-switch setting
+      sendResponse({ success: true, isActive: isCaptureActive, targetTabId: activeTabId, fallbackTabId, tabSwitchEnabled });
       return false;
     case 'set-adaptive-sound':
       adaptiveSoundEnabled = !!message.enabled;
@@ -261,6 +285,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                  console.log("'offscreen' permission granted via request.");
             }
             // --- END Permission Request ---
+
+            // Inject fullscreen watcher inline into the capture tab (top frame only)
+            try {
+              await chrome.scripting.executeScript({
+                target: { tabId: tabId },
+                func: () => {
+                  console.log('Fullscreen watcher injected');
+                  const notify = () => {
+                    const isFull = !!(
+                      document.fullscreenElement ||
+                      document.webkitFullscreenElement ||
+                      document.mozFullScreenElement ||
+                      document.msFullscreenElement
+                    );
+                    chrome.runtime.sendMessage({
+                      type: 'page-fullscreen-change',
+                      isHtml5Full: isFull
+                    });
+                  };
+                  notify();
+                  document.addEventListener('fullscreenchange', notify);
+                  document.addEventListener('webkitfullscreenchange', notify);
+                  document.addEventListener('mozfullscreenchange', notify);
+                  document.addEventListener('MSFullscreenChange', notify);
+                }
+              });
+              console.log(`Background: Injected inline fullscreen watcher into tab ${tabId}`);
+            } catch (err) {
+              console.error('Background: Failed to inject inline fullscreen watcher', err);
+            }
 
             // If we reach here, permission should exist - proceed to start
             startTabCapture(); // This now assumes permission exists
@@ -392,9 +446,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       // Only switch on state change
       if (isBasketball !== lastBasketballState) {
-        const target = isBasketball ? captureTabId : fallbackTabId;
-        if (target != null) {
-          console.log(`Background: Switching UI from tab ${uiActiveTabId} to ${target} (basketball=${isBasketball})`);
+        const targetTab = isBasketball ? captureTabId : fallbackTabId;
+        if (targetTab != null) {
+          console.log(`Background: Switching UI from tab ${uiActiveTabId} to ${targetTab} (basketball=${isBasketball})`);
           // Pause videos on fallback before switching back to basketball
           if (isBasketball && fallbackTabId != null) {
             chrome.scripting.executeScript({
@@ -403,14 +457,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             });
           }
           // Perform the tab switch
-          chrome.tabs.update(target, { active: true })
+          chrome.tabs.update(targetTab, { active: true })
             .then(() => {
-              console.log(`Background: Active tab now ${target}`);
-              uiActiveTabId = target;
+              console.log(`Background: Active tab now ${targetTab}`);
+              uiActiveTabId = targetTab;
               // Play videos on fallback after switching to fallback
-              if (!isBasketball && target === fallbackTabId) {
+              if (!isBasketball && targetTab === fallbackTabId) {
                 chrome.scripting.executeScript({
-                  target: { tabId: target },
+                  target: { tabId: targetTab },
                   func: () => document.querySelectorAll('video').forEach(v => v.play())
                 });
               }
@@ -419,6 +473,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         lastBasketballState = isBasketball;
       }
+      sendResponse({ success: true });
+      return false;
+
+    case 'set-tab-switch':
+      // Toggle UI-switching behavior (switch to fallback tab when no basketball)
+      tabSwitchEnabled = !!message.enabled;
+      console.log(`Background: Tab-switching set to ${tabSwitchEnabled}`);
       sendResponse({ success: true });
       return false;
 
