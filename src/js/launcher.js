@@ -7,7 +7,8 @@ var isCasting = function() {
     : false;
 };
 var maybeClose = function(delay) {
-  if (delay) setTimeout(() => {}, delay);
+  if (delay) setTimeout(() => window.close(), delay);
+  else window.close();
 };
 
 console.log("Launcher script started.");
@@ -53,6 +54,7 @@ function updateUI(state, currentTabId, targetTabId) {
             (response) => {
               if (response?.success) {
                 setState(UIState.CAPTURING, tabId);
+                maybeClose(500);
               } else {
                 console.error('Failed to start tab capture', response);
               }
@@ -93,6 +95,7 @@ function updateUI(state, currentTabId, targetTabId) {
           // Always switch capture to the tab where the capture launcher was opened
           chrome.runtime.sendMessage({ type: 'request-switch-tab-capture', tabId: currentTabId });
           setState(UIState.CAPTURING);
+          maybeClose(500);
         };
       }
       if (stopCaptureButton) {
@@ -263,6 +266,12 @@ document.addEventListener('DOMContentLoaded', () => {
             tabSwitchToggle.addEventListener('change', () => {
                 chrome.runtime.sendMessage({ type: 'set-tab-switch', enabled: tabSwitchToggle.checked });
                 if (selectorItem) selectorItem.style.display = tabSwitchToggle.checked ? 'flex' : 'none';
+                
+                // Reset any active tab switching if toggle is turned off
+                if (!tabSwitchToggle.checked) {
+                    // Notify background to reset basketball state
+                    chrome.runtime.sendMessage({ type: 'reset-basketball-state' });
+                }
             });
         }
         // Update initial UI state based on capture-state

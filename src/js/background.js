@@ -1,30 +1,22 @@
 console.log('Background script loaded.');
 
 let isCaptureActive = false;
-// let recorder = null; // Removed - Not used in background script
-let captureTabId = null; // Store the tab where the overlay/action was invoked
-let streamId = null; // Store the desktop stream ID from the launcher
+let captureTabId = null;
+let streamId = null;
 
-// --- Tab Capture Specific Variables ---
-let targetTabIdForCapture = null; // Store the tab ID to be captured
-// --- Muting State Tracking (Optional but Recommended) ---
-let tabMutedState = {}; // Store the last known muted state { tabId: boolean }
-// --- Fullscreen State Tracking ---
-let fullscreenedWindow = null; // Stores { id: windowId, previousState: windowState }
+let targetTabIdForCapture = null;
+let tabMutedState = {};
+let fullscreenedWindow = null;
 
-// At the top, declare lastPrediction
-let lastPrediction = null; // Store most recent onnx prediction
-// Adaptive sound toggle state (on by default)
+let lastPrediction = null;
 let adaptiveSoundEnabled = true;
 
 let fallbackTabId = null;
 let lastBasketballState = null;
 
-// At top of file, after captureTabId etc
-let uiActiveTabId = null; // Track which tab is currently visible to user for switching UI
+let uiActiveTabId = null;
 
-// At top of file, after uiActiveTabId declaration
-let tabSwitchEnabled = false; // Track whether UI switching is enabled
+let tabSwitchEnabled = false;
 
 // Stub sendMessageToContentScript to no-op (UI moved to popup)
 
@@ -37,24 +29,20 @@ chrome.action.onClicked.addListener(async (tab) => {
     const clickedTabId = tab.id;
     console.log(`Action clicked on tab: ${clickedTabId}`);
 
-    // --- MODIFIED: Check if capture is active on THIS tab --- 
     const activeCaptureTabId = targetTabIdForCapture || captureTabId; 
     if (isCaptureActive && activeCaptureTabId === clickedTabId) {
         console.log(`Background: Capture active on this tab (${clickedTabId}). Sending toggle-overlay to potentially show UI.`);
-        // Just send the toggle message to show/hide the existing UI
         sendMessageToContentScript(clickedTabId, { type: 'toggle-overlay' });
-        return; // Don't proceed to inject/re-initialize
+        return;
     }
-    // --- END MODIFICATION ---
 
-    // If capture is not active on this tab, proceed as before
     console.log(`Background: No active capture on tab ${clickedTabId} or capture inactive. Ensuring script and sending toggle-overlay.`);
-    captureTabId = clickedTabId; // Update captureTabId for potential new capture start
+    captureTabId = clickedTabId;
 });
 
 let creatingOffscreenDocument = false;
 
-// --- Function to CHECK Offscreen permission (Does NOT request) ---
+// Function to CHECK Offscreen permission (Does NOT request)
 async function checkOffscreenPermission() {
   try {
     return await chrome.permissions.contains({ permissions: ['offscreen'] });
@@ -66,19 +54,16 @@ async function checkOffscreenPermission() {
 
 // 2. Listen for messages
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // Handle page fullscreen changes from content script
   if (message.type === 'page-fullscreen-change') {
     const tabId = sender.tab?.id;
     const windowId = sender.tab?.windowId;
     console.log(`Background: Tab ${tabId} HTML5 fullscreen state = ${message.isHtml5Full}`);
     if (windowId != null) {
       if (message.isHtml5Full) {
-        // Enter OS-level fullscreen for the browser window
         chrome.windows.update(windowId, { state: 'fullscreen' }, () => {
           if (chrome.runtime.lastError) console.error('Error entering fullscreen window:', chrome.runtime.lastError.message);
         });
       } else {
-        // Exit OS-level fullscreen
         chrome.windows.update(windowId, { state: 'normal' }, () => {
           if (chrome.runtime.lastError) console.error('Error exiting fullscreen window:', chrome.runtime.lastError.message);
         });
@@ -88,7 +73,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   let needsAsyncResponse = false;
 
-  // --- Handle Messages FROM Offscreen Document FIRST ---
   const offscreenMessageTypes = [
     'offscreen-recording-started',
     'offscreen-recording-stopped',
@@ -97,40 +81,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     'onnxPrediction'
   ];
 
-  // Check if the message type is known to come from offscreen
   // (message.target === 'offscreen' isn't reliable if sender is the background script itself)
   if (offscreenMessageTypes.includes(message.type)) {
-      // Removed generic offscreen message log for brevity
       switch (message.type) {
           case 'offscreen-recording-started':
               isCaptureActive = true;
-              // Notify launcher popup of active state
               chrome.runtime.sendMessage({ type: 'capture-state-active' });
               break;
           case 'offscreen-recording-stopped':
-              // Save the tab ID before cleanup so we can unmute it
               const _tabToUnmute = targetTabIdForCapture || captureTabId;
-              cleanupState(); // This also calls restoreWindowState and resets state
-              // Unmute the tab now that capture has stopped
+              cleanupState();
               if (_tabToUnmute) {
                 chrome.tabs.update(_tabToUnmute, { muted: false })
                   .catch(err => console.error('Failed to unmute tab after stopping capture:', err));
               }
-              // Notify launcher popup of inactive state
               chrome.runtime.sendMessage({ type: 'capture-state-inactive' });
               break;
           case 'offscreen-error':
               const error = message.payload?.error || 'Unknown error';
               console.error("Received error from offscreen document:", error);
-              stopCapture(); // Stop potentially active capture
-              // Notify launcher popup of error state
+              stopCapture();
               chrome.runtime.sendMessage({
                   type: 'capture-state-inactive',
                   payload: { error: `Offscreen recording error: ${error}` }
               });
               break;
           case 'preview-frame':
-              // Broadcast preview frame to launcher popup
               if (message.payload?.frameDataUrl) {
                   chrome.runtime.sendMessage({
                       type: 'preview-frame',
@@ -141,11 +117,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           case 'onnxPrediction':
               if (isCaptureActive && message.payload?.prediction) {
                   const { prediction } = message.payload;
-                  // Log classifier result with context
                   const activeTab = targetTabIdForCapture || captureTabId;
                   console.log(`Background: Classifier result: ${prediction} (activeTabId: ${activeTab}, fallbackTabId: ${fallbackTabId})`);
                   lastPrediction = prediction;
-                  // Broadcast prediction to launcher popup
                   chrome.runtime.sendMessage({ type: 'onnxPrediction', payload: { prediction } });
 
                   // Mute/unmute logic
@@ -165,27 +139,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                       }
                   }
 
-                  // UI switching: only on a change of basketball state
+                  // UI switching: only on a change of basketball state and only if tab switching is enabled
                   const isBasketball = (prediction === 'Basketball Detected');
                   if (lastBasketballState === null) {
                       lastBasketballState = isBasketball;
-                  } else if (isBasketball !== lastBasketballState) {
+                  } else if (isBasketball !== lastBasketballState && tabSwitchEnabled) {
                       const targetTab = isBasketball ? captureTabId : fallbackTabId;
                       if (targetTab != null) {
                           console.log(`Background: Switching UI from tab ${uiActiveTabId} to ${targetTab} (basketball=${isBasketball})`);
-                          // Pause videos on fallback before switching back to basketball
                           if (isBasketball && fallbackTabId != null) {
                             chrome.scripting.executeScript({
                               target: { tabId: fallbackTabId },
                               func: () => document.querySelectorAll('video').forEach(v => v.pause())
                             });
                           }
-                          // Perform the tab switch
                           chrome.tabs.update(targetTab, { active: true })
                             .then(() => {
                               console.log(`Background: Active tab now ${targetTab}`);
                               uiActiveTabId = targetTab;
-                              // Play videos on fallback after switching to fallback
                               if (!isBasketball && targetTab === fallbackTabId) {
                                 chrome.scripting.executeScript({
                                   target: { tabId: targetTab },
@@ -202,11 +173,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               }
               break;
       }
-      return false; // Indicate message handled, stop processing
+      return false;
   }
 
-  // --- Handle Messages from Content Script / Launcher ---
-  // Only process these if not handled above
   // Only log most content/launcher messages (skip prediction-event)
   if (message.type !== 'prediction-event') {
     console.log(`Background: Received message type ${message.type} from content/launcher.`);
@@ -215,15 +184,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     case 'request-capture-state':
       console.log("Background: Received request-capture-state from popup.");
       const activeTabId = targetTabIdForCapture || captureTabId;
-      // Initialize UI active tab to the capture app tab
       uiActiveTabId = activeTabId;
-      // Include current tab-switch setting
       sendResponse({ success: true, isActive: isCaptureActive, targetTabId: activeTabId, fallbackTabId, tabSwitchEnabled });
       return false;
     case 'set-adaptive-sound':
       adaptiveSoundEnabled = !!message.enabled;
       console.log(`Background: Adaptive sound set to ${adaptiveSoundEnabled}`);
-      // If disabling, unmute the current capture tab if muted
       if (!adaptiveSoundEnabled) {
         const tabToRestore = targetTabIdForCapture || captureTabId;
         if (tabToRestore && tabMutedState[tabToRestore]) {
@@ -244,7 +210,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 sendResponse({ success: false, error: "Capture already active" });
                 return;
             }
-            // Determine target tab ID: prefer message.tabId from popup, fallback to sender.tab.id
             const tabId = message.tabId ?? sender.tab?.id;
             if (!tabId) {
                 console.error("Cannot start tab capture, no target tab identified.");
@@ -255,7 +220,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             captureTabId = tabId;
             console.log(`Tab capture initiated for tab ID: ${targetTabIdForCapture}`);
 
-            // --- Request Permission HERE (Directly) --- 
             let granted = false;
             try {
                 console.log("Requesting 'offscreen' permission directly...");
@@ -268,11 +232,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                  } else {
                      sendResponse({ success: false, error: `Permission request failed: ${error.message}` });
                  }
-                 return; // Stop if request fails
+                 return;
             }
 
             if (!granted) {
-                 // It might be already granted, let's double check
                  console.log("Permission request returned false, checking if already granted...");
                  if (!(await checkOffscreenPermission())) {
                      console.error("Offscreen permission was not granted and request failed.");
@@ -284,9 +247,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             } else {
                  console.log("'offscreen' permission granted via request.");
             }
-            // --- END Permission Request ---
 
-            // Inject fullscreen watcher inline into the capture tab (top frame only)
             try {
               await chrome.scripting.executeScript({
                 target: { tabId: tabId },
@@ -316,8 +277,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               console.error('Background: Failed to inject inline fullscreen watcher', err);
             }
 
-            // If we reach here, permission should exist - proceed to start
-            startTabCapture(); // This now assumes permission exists
+            startTabCapture();
             sendResponse({ success: true, message: "Tab capture initiated" });
         })();
 
@@ -325,18 +285,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'request-start-capture':
         console.log("Received request-start-capture (for desktop/window).");
-         targetTabIdForCapture = null; // Ensure tab capture ID is null
+        targetTabIdForCapture = null;
         if (isCaptureActive) {
             console.warn("Start requested, but capture is already active.");
             sendResponse({ success: false, error: "Capture already active" });
             return false;
         }
         if (sender.tab) {
-            captureTabId = sender.tab.id; // Store the tab that initiated desktop capture
+            captureTabId = sender.tab.id;
             console.log(`Desktop capture initiated from tab: ${captureTabId}`);
         } else {
             console.warn("Start request received without sender tab info.");
-             // Use the last known action-clicked tab as a fallback? Risky.
             if (!captureTabId) {
                  console.error("Cannot start desktop capture, no initiating tab known.");
                  sendResponse({ success: false, error: "No initiating tab identified" });
@@ -365,9 +324,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
       break;
 
-    case 'capture-stream-id-selected': // From launcher
+    case 'capture-stream-id-selected':
         console.log('Received capture-stream-id-selected from launcher:', message.streamId);
-         targetTabIdForCapture = null; // Ensure tab capture ID is null
+        targetTabIdForCapture = null;
         if (!message.streamId) {
             console.error("Stream ID is missing in message from launcher!");
              if(captureTabId) {
@@ -377,13 +336,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({ success: false, error: "Stream ID missing" });
             return false;
         }
-        // Use the specific function for desktop capture
         startDesktopCapture(message.streamId);
         needsAsyncResponse = true;
         sendResponse({ success: true });
       break;
 
-    case 'capture-stream-id-cancelled': // From launcher
+    case 'capture-stream-id-cancelled':
         console.warn("Launcher selection cancelled or failed.");
         targetTabIdForCapture = null;
         if(captureTabId) {
@@ -394,11 +352,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return false;
         break;
 
-    case 'request-stop-capture': // From content script
+    case 'request-stop-capture':
         console.log("Received request-stop-capture");
         stopCapture();
-        // Don't send response immediately, wait for confirmation from offscreen
-        // sendResponse({ success: true }); // removed
         break;
 
     case 'request-last-prediction':
@@ -407,10 +363,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'request-switch-tab-capture':
         console.log(`Received request-switch-tab-capture for tab ${message.tabId}`);
-        // Switch capture to a new tab: stop then start after delay
         if (isCaptureActive) {
             stopCapture();
-            // After allowing offscreen to fully stop, start on new tab
             setTimeout(() => {
                 const newTab = message.tabId;
                 if (newTab) {
@@ -430,7 +384,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return false;
 
     case 'set-fallback-tab':
-      // Store which tab to switch to when no basketball
       fallbackTabId = message.tabId;
       console.log(`Background: Fallback tab set to ${fallbackTabId}`);
       sendResponse({ success: true });
@@ -438,30 +391,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'prediction-event':
       const isBasketball = !!message.isBasketball;
-      // First event: just record state
       if (lastBasketballState === null) {
         lastBasketballState = isBasketball;
         sendResponse({ success: true });
         return false;
       }
-      // Only switch on state change
-      if (isBasketball !== lastBasketballState) {
+      if (isBasketball !== lastBasketballState && tabSwitchEnabled) {
         const targetTab = isBasketball ? captureTabId : fallbackTabId;
         if (targetTab != null) {
           console.log(`Background: Switching UI from tab ${uiActiveTabId} to ${targetTab} (basketball=${isBasketball})`);
-          // Pause videos on fallback before switching back to basketball
           if (isBasketball && fallbackTabId != null) {
             chrome.scripting.executeScript({
               target: { tabId: fallbackTabId },
               func: () => document.querySelectorAll('video').forEach(v => v.pause())
             });
           }
-          // Perform the tab switch
           chrome.tabs.update(targetTab, { active: true })
             .then(() => {
               console.log(`Background: Active tab now ${targetTab}`);
               uiActiveTabId = targetTab;
-              // Play videos on fallback after switching to fallback
               if (!isBasketball && targetTab === fallbackTabId) {
                 chrome.scripting.executeScript({
                   target: { tabId: targetTab },
@@ -477,14 +425,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return false;
 
     case 'set-tab-switch':
-      // Toggle UI-switching behavior (switch to fallback tab when no basketball)
       tabSwitchEnabled = !!message.enabled;
       console.log(`Background: Tab-switching set to ${tabSwitchEnabled}`);
       sendResponse({ success: true });
       return false;
 
+    case 'reset-basketball-state':
+      lastBasketballState = null;
+      console.log(`Background: Basketball state reset due to tab switching being disabled`);
+      sendResponse({ success: true });
+      return false;
+
     default:
-      // This log should now only appear for truly unknown message types
       console.warn("Received genuinely unknown message type:", message.type);
       return false;
   }
@@ -499,7 +451,7 @@ async function hasOffscreenDocument() {
   if (chrome.runtime.getContexts) {
     const contexts = await chrome.runtime.getContexts({
       contextTypes: ['OFFSCREEN_DOCUMENT'],
-      documentUrls: [chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH)] // Match specific URL
+      documentUrls: [chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH)]
     });
     return !!contexts.length;
   } else {
@@ -521,14 +473,14 @@ async function setupOffscreenDocument() {
           const intervalId = setInterval(async () => {
               if (!creatingOffscreenDocument) {
                   clearInterval(intervalId);
-                  resolve(await hasOffscreenDocument()); // Re-check if it exists now
+                  resolve(await hasOffscreenDocument());
               }
           }, 100);
       });
   }
   if (await hasOffscreenDocument()) {
     console.log("Offscreen document already exists.");
-    return true; // Indicate success/existence
+    return true;
   }
 
   console.log("Creating offscreen document...");
@@ -540,7 +492,7 @@ async function setupOffscreenDocument() {
       justification: 'Required for capturing tab audio/video and maintaining activity via silent audio',
     });
     console.log("Offscreen document created successfully.");
-    return true; // Indicate success
+    return true;
   } catch (error) {
     console.error("Failed to create offscreen document:", error);
     const errorTabToNotify = targetTabIdForCapture || captureTabId;
@@ -550,31 +502,28 @@ async function setupOffscreenDocument() {
         payload: { error: 'Failed to initialize recorder.' }
       });
     }
-    cleanupState(); // Reset state if offscreen doc fails
-    return false; // Indicate failure
+    cleanupState();
+    return false;
   } finally {
     creatingOffscreenDocument = false;
   }
 }
 
-// --- End Offscreen Document Management ---
-
 // 3. Start the actual media capture process
 async function startCapture(streamId, captureType) {
     if (!streamId || !captureType) {
         console.error("Background: startCapture called without streamId or captureType.");
-        cleanupState(); // Clean up potentially inconsistent state
+        cleanupState();
         return;
     }
 
     console.log(`Background: Preparing to start ${captureType} capture with streamId: ${streamId}`);
 
-    // Determine the correct tab ID to pass to offscreen
-    const tabIdToPass = targetTabIdForCapture || captureTabId; // Prefer specific target, fallback to initiator
+    // Prefer specific target, fallback to initiator
+    const tabIdToPass = targetTabIdForCapture || captureTabId;
     if (!tabIdToPass) {
         console.error("Background: Cannot start capture - unable to determine target tab ID.");
         cleanupState();
-        // Optionally notify the initiating tab if possible
         if (captureTabId) {
             sendMessageToContentScript(captureTabId, { type: 'capture-state-inactive', payload: { error: 'Failed to determine target tab ID for capture.' } });
         }
@@ -582,31 +531,25 @@ async function startCapture(streamId, captureType) {
     }
      console.log(`Background: Offscreen document will be associated with tab ID: ${tabIdToPass}`);
 
-    // Reset mute state tracking for the target tab
     delete tabMutedState[tabIdToPass];
 
     try {
-        // Check if an offscreen document already exists. Close it if it does.
         // This handles cases where a previous capture might have failed uncleanly.
         if (await hasOffscreenDocument(OFFSCREEN_DOCUMENT_PATH)) {
             console.warn("Background: Found existing offscreen document before starting. Closing it.");
             await closeOffscreenDocument();
         }
 
-        // Create the offscreen document.
         await setupOffscreenDocument();
 
         console.log("Background: Sending 'start-recording' message to offscreen document.");
-        // Send the message to the offscreen document to start recording.
         await chrome.runtime.sendMessage({
           type: 'start-recording',
           target: 'offscreen',
           payload: {
               streamId: streamId,
               captureType: captureType,
-              // --- ADDED: Pass the tab ID ---
               tabId: tabIdToPass
-              // --- END ADDITION ---
           }
         });
         console.log("Background: 'start-recording' message sent.");
@@ -614,12 +557,11 @@ async function startCapture(streamId, captureType) {
     } catch (error) {
         console.error("Background: Error during startCapture:", error);
         const errorMsg = error.message || String(error);
-        // Notify the content script of the failure
         const tabToNotifyError = targetTabIdForCapture || captureTabId;
          if(tabToNotifyError) {
             sendMessageToContentScript(tabToNotifyError, { type: 'capture-state-inactive', payload: { error: `Failed to start capture: ${errorMsg}` } });
          }
-        await closeOffscreenDocument(); // Attempt cleanup
+        await closeOffscreenDocument();
         cleanupState();
     }
 }
@@ -627,17 +569,14 @@ async function startCapture(streamId, captureType) {
 // 4. Stop the capture
 function stopCapture() {
     console.log("stopCapture called.");
-    // If already stopping or inactive, do nothing extra
-    if (!isCaptureActive) { // Check if background thinks capture is active
+    if (!isCaptureActive) {
          console.log("stopCapture called, but background state is not active.");
-         // Still attempt cleanup, but don't send stop message if already inactive
          cleanupState();
          closeOffscreenDocument();
          return;
     }
 
     console.log("Sending stop message to offscreen document...");
-    // Send message to offscreen document to stop recording
     // No need to check hasOffscreenDocument, send anyway, it will fail gracefully if closed
     chrome.runtime.sendMessage({ type: 'stop-recording', target: 'offscreen' })
         .catch(err => console.warn("Could not send stop message to offscreen:", err.message)); // Usually means it's already closed
@@ -646,26 +585,20 @@ function stopCapture() {
     // Wait for 'offscreen-recording-stopped' message which signifies
     // recording has actually stopped and potentially data is ready.
     // cleanupState() will be called when that message is received.
-    // isCaptureActive = false; // Move this to cleanupState or when 'offscreen-recording-stopped' received
 }
 
-// Utility function to reset state variables
 function cleanupState() {
     console.log("Background: Cleaning up state.");
     isCaptureActive = false;
     streamId = null;
-    captureTabId = null; // Clear the initiating tab
-    targetTabIdForCapture = null; // Clear the specific target tab
+    captureTabId = null;
+    targetTabIdForCapture = null;
 
-
-    // --- ADDED: Ensure window state is restored on cleanup ---
     restoreWindowState();
-    // --- END ADDITION ---
 
     console.log("Background: State cleanup complete.");
 }
 
-// Function to close the offscreen document (optional)
 async function closeOffscreenDocument() {
     if (await hasOffscreenDocument()) {
         console.log("Closing offscreen document.");
@@ -681,20 +614,18 @@ async function closeOffscreenDocument() {
 // Handle extension unload (suspend, update, uninstall)
 chrome.runtime.onSuspend?.addListener(() => { // Optional chaining for safety
   console.log("Extension suspending. Stopping capture if active.");
-  if (isCaptureActive || streamId) { // Check if active or potentially starting
-      stopCapture(); // Ensure cleanup
-      closeOffscreenDocument(); // Close offscreen doc on suspend
+  if (isCaptureActive || streamId) {
+      stopCapture();
+      closeOffscreenDocument();
   }
 });
 
-// Initial log to confirm script loaded and listeners should be registering
 console.log("Background script fully initialized and event listeners registered.");
 
-// --- NEW: Start Tab Capture Process ---
 async function startTabCapture() {
     if (isCaptureActive) {
         console.warn("Background: Tab capture requested, but already active.");
-        return; // Or send error response if called via message listener
+        return;
     }
     if (!targetTabIdForCapture) {
          console.error("Background: Cannot start tab capture, targetTabIdForCapture is not set.");
@@ -704,12 +635,11 @@ async function startTabCapture() {
     console.log(`Background: Attempting chrome.tabCapture.getMediaStreamId for tab ${targetTabIdForCapture}`);
 
     try {
-        // --- ADDED: Make window fullscreen ---
         const tab = await chrome.tabs.get(targetTabIdForCapture);
         if(tab.windowId) {
             // await setWindowFullscreen(tab.windowId);
             console.log(`[${new Date().toISOString()}] Before Background`);
-            await new Promise(resolve => setTimeout(resolve, 2000)); // 750ms delay
+            await new Promise(resolve => setTimeout(resolve, 2000));
             console.log(`[${new Date().toISOString()}] Background: Delay complete after fullscreen.`);
         }
         const streamId = await chrome.tabCapture.getMediaStreamId({
@@ -721,19 +651,16 @@ async function startTabCapture() {
         }
 
         console.log(`Background: Obtained media stream ID: ${streamId} for tab ${targetTabIdForCapture}`);
-        // Now start the capture process using the obtained stream ID
-        await startCapture(streamId, 'tab'); // Pass streamId and type
+        await startCapture(streamId, 'tab');
 
     } catch (error) {
         console.error("Background: Error starting tab capture:", error);
          const errorMsg = error.message || String(error);
-        // Notify the content script
         sendMessageToContentScript(targetTabIdForCapture, { type: 'capture-state-inactive', payload: { error: `Failed to start tab capture: ${errorMsg}` } });
         cleanupState();
     }
 }
 
-// --- MODIFIED: Start Desktop/Window Capture Process ---
 async function startDesktopCapture(desktopStreamId) {
     if (isCaptureActive) {
         console.warn("Background: Desktop capture requested, but already active.");
@@ -744,33 +671,28 @@ async function startDesktopCapture(desktopStreamId) {
          return;
      }
      if (!captureTabId) {
-         console.warn("Background: Starting desktop capture, but initiating tab ID (captureTabId) is unknown.");
          // Proceeding, but offscreen document might not get the correct tabId if targetTabIdForCapture is also null
+         console.warn("Background: Starting desktop capture, but initiating tab ID (captureTabId) is unknown.");
      }
 
     console.log(`Background: Starting desktop capture with stream ID: ${desktopStreamId}`);
 
-    // --- ADDED: Make window fullscreen ---
-    if (captureTabId) { // Need the initiating tab's window ID
+    if (captureTabId) {
         try {
             const tab = await chrome.tabs.get(captureTabId);
             if (tab.windowId) {
-                // --- Added: Small timeout after going fullscreen to stabilize ---
-                await new Promise(resolve => setTimeout(resolve, 750)); // 750ms delay
+                await new Promise(resolve => setTimeout(resolve, 750));
                 console.log("Background: Delay complete after fullscreen.");
-                // --- END ADDITION ---
             }
         } catch (error) {
             console.warn(`Could not get initiating tab ${captureTabId} to make window fullscreen:`, error);
         }
     }
-    // --- END ADDITION ---
 
-    // Start the capture process using the provided stream ID
-    await startCapture(desktopStreamId, 'desktop'); // Pass streamId and type
+    await startCapture(desktopStreamId, 'desktop');
 }
 
-// --- Fullscreen Helper Functions ---
+
 async function setWindowFullscreen(windowId) {
   if (!windowId) {
     console.error("setWindowFullscreen: No window ID provided.");
@@ -778,7 +700,7 @@ async function setWindowFullscreen(windowId) {
   }
   if (fullscreenedWindow?.id === windowId) {
       console.warn(`setWindowFullscreen: Window ${windowId} is already being managed for fullscreen.`);
-      return; // Avoid redundant operations
+      return;
   }
 
   console.log(`setWindowFullscreen: Attempting to make window ${windowId} fullscreen.`);
@@ -800,21 +722,21 @@ async function setWindowFullscreen(windowId) {
 
   } catch (error) {
     console.error(`Error setting window ${windowId} to fullscreen:`, error?.message || error);
-    fullscreenedWindow = null; // Clear state if failed
+    fullscreenedWindow = null;
   }
 }
 
 async function restoreWindowState() {
   if (!fullscreenedWindow?.id || !fullscreenedWindow?.previousState) {
     // console.log("restoreWindowState: No window state to restore."); // Can be noisy
-    return; // Nothing to restore
+    return;
   }
 
   const { id: windowId, previousState } = fullscreenedWindow;
   console.log(`restoreWindowState: Attempting to restore window ${windowId} to state '${previousState}'.`);
 
   // Reset stored state immediately to prevent race conditions/multiple attempts
-  fullscreenedWindow = null; 
+  fullscreenedWindow = null;
 
   try {
     const currentWindow = await chrome.windows.get(windowId);
@@ -830,4 +752,4 @@ async function restoreWindowState() {
     console.warn(`Could not restore state for window ${windowId} (maybe closed?):`, error?.message || error);
   }
 }
-// --- End Fullscreen Helpers ---
+
