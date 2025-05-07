@@ -18,6 +18,8 @@ let uiActiveTabId = null;
 
 let tabSwitchEnabled = false;
 
+let sceneDetectionThreshold = 0.15;
+
 // Stub sendMessageToContentScript to no-op (UI moved to popup)
 
 // 1. Action Clicked: Toggle the overlay UI in the active tab
@@ -436,6 +438,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: true });
       return false;
 
+    case 'update-scene-sensitivity':
+        console.log('Received update-scene-sensitivity:', message.threshold);
+        // Store the value in case offscreen document is created later
+        sceneDetectionThreshold = message.threshold;
+        
+        // Need to set async response flag
+        needsAsyncResponse = true;
+        
+        // Use Promise to check if offscreen document exists and forward message
+        hasOffscreenDocument().then(exists => {
+            if (exists) {
+                chrome.runtime.sendMessage({
+                    target: 'offscreen',
+                    type: 'update-scene-sensitivity',
+                    payload: { threshold: message.threshold }
+                }).catch(err => {
+                    console.warn('Failed to forward scene sensitivity update to offscreen:', err);
+                });
+            }
+            sendResponse({ success: true });
+        }).catch(err => {
+            console.error('Error checking offscreen document status:', err);
+            sendResponse({ success: true });
+        });
+        break;
+
     default:
       console.warn("Received genuinely unknown message type:", message.type);
       return false;
@@ -547,9 +575,10 @@ async function startCapture(streamId, captureType) {
           type: 'start-recording',
           target: 'offscreen',
           payload: {
-              streamId: streamId,
-              captureType: captureType,
-              tabId: tabIdToPass
+            streamId: streamId,
+            captureType: captureType,
+            tabId: tabIdToPass,
+            sceneDetectionThreshold: sceneDetectionThreshold
           }
         });
         console.log("Background: 'start-recording' message sent.");

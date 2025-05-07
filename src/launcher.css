@@ -341,4 +341,45 @@ body.settings-open > :not(#settings-drawer):not(#settings-btn) {
 #settings-drawer .tab-selector-item select {
   /* Prevent flex-grow and let it span full drawer width */
   flex: none;
+}
+
+/* Scene detection slider styles */
+.scene-detection-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px !important;
+}
+
+.slider-container {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#scene-sensitivity-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: #555;
+  outline: none;
+}
+
+#scene-sensitivity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ff3636;
+  cursor: pointer;
+}
+
+#scene-sensitivity-value {
+  min-width: 40px;
+  font-size: 14px;
+  color: #e0e0e0;
+  text-align: center;
 } 

@@ -336,6 +336,37 @@ document.addEventListener('DOMContentLoaded', () => {
             chrome.runtime.sendMessage({ type: 'set-adaptive-sound', enabled: adaptiveToggle.checked });
         });
     }
+    
+    // Scene detection sensitivity slider
+    const sceneSlider = document.getElementById('scene-sensitivity-slider');
+    const sceneValue = document.getElementById('scene-sensitivity-value');
+    if (sceneSlider && sceneValue) {
+        // Initial value display
+        updateSceneSensitivityDisplay(sceneSlider.value);
+        
+        // Listen for changes
+        sceneSlider.addEventListener('input', function() {
+            updateSceneSensitivityDisplay(this.value);
+        });
+        
+        sceneSlider.addEventListener('change', function() {
+            const threshold = parseFloat(this.value);
+            // Send to background which will forward to offscreen
+            chrome.runtime.sendMessage({ 
+                type: 'update-scene-sensitivity', 
+                threshold: threshold 
+            });
+        });
+    }
+    
+    // Helper function to update sensitivity display
+    function updateSceneSensitivityDisplay(value) {
+        const percentage = Math.round(parseFloat(value) * 100);
+        if (sceneValue) {
+            sceneValue.textContent = `${percentage}%`;
+        }
+    }
+    
     // Populate tab selector with all open tabs and listen for selection changes
     const tabSelector = document.getElementById('tab-selector');
     if (tabSelector) {

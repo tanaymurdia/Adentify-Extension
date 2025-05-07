@@ -5,13 +5,23 @@ importScripts('ort.min.js');
 
 // --- Global variables ---
 let ortSession = null;
-// Smarter temporal smoothing: buffer + hysteresis thresholds
+// Advanced temporal classification with buffer and voting
 const SMOOTHING_ALPHA = 0.2;   // EMA smoothing factor (0-1)
 let emaScore = null;           // Exponential moving average state
 const UPPER_THRESHOLD = 0.6;   // Threshold to enter Basketball state
 const LOWER_THRESHOLD = 0.4;   // Threshold to exit Basketball state
 let lastState = null;          // Previous classification state
-const modelPath = "models/hypernetwork_basketball_classifier_quantized.onnx"; // <<<--- Using the actual model path
+
+// New temporal classification variables
+const PREDICTION_HISTORY_SIZE = 10;  // Store last 10 predictions
+const MAJORITY_THRESHOLD = 0.7;      // Require 70% agreement to change state
+const COMMERCIAL_OUTLIER_THRESHOLD = 0.8; // Higher threshold for detecting sudden changes
+const OUTLIER_CONSISTENCY_COUNT = 3;  // Require this many consistent detections for outlier handling
+let predictionHistory = [];           // Buffer of raw prediction scores
+let classificationHistory = [];       // Buffer of classification decisions
+let consistentOutlierCount = 0;       // Counter for consistent outlier detections
+
+const modelPath = "models/hypernetwork_basketball_classifier_quantized.onnx";
 const TARGET_WIDTH = 224;
 const TARGET_HEIGHT = 224;
 
@@ -124,39 +134,130 @@ self.onmessage = async (event) => {
             const outputTensor = results[outputName];
             
             // Output shape is likely [1, 1], data is Float32Array with one element
-            const score = outputTensor.data[0];
-
+            const rawScore = outputTensor.data[0];
+            
+            // Add to prediction history
+            predictionHistory.push(rawScore);
+            if (predictionHistory.length > PREDICTION_HISTORY_SIZE) {
+                predictionHistory.shift(); // Remove oldest
+            }
+            
             // Update exponential moving average for smoothing
             emaScore = emaScore === null
-                ? score
-                : SMOOTHING_ALPHA * score + (1 - SMOOTHING_ALPHA) * emaScore;
+                ? rawScore
+                : SMOOTHING_ALPHA * rawScore + (1 - SMOOTHING_ALPHA) * emaScore;
             const averageScore = emaScore;
-
-            // Hysteresis-based state transition
-            let newState;
-            if (lastState === null) {
-                newState = averageScore > UPPER_THRESHOLD;
-            } else if (!lastState && averageScore > UPPER_THRESHOLD) {
-                newState = true;
-            } else if (lastState && averageScore < LOWER_THRESHOLD) {
-                newState = false;
-            } else {
-                newState = lastState;
+            
+            // Calculate recent trend (positive = increasing basketball probability)
+            const recentScores = predictionHistory.slice(-5); // Last 5 scores
+            let trend = 0;
+            if (recentScores.length >= 5) {
+                // Simple linear trend (positive = increasing, negative = decreasing)
+                trend = (recentScores[4] + recentScores[3]) - (recentScores[1] + recentScores[0]);
             }
+            
+            // Detect potential outliers (commercial clips in non-basketball content or vice versa)
+            let isOutlier = false;
+            let outlierType = null;
+            
+            if (predictionHistory.length >= 3) {
+                const currentScore = predictionHistory[predictionHistory.length - 1];
+                const prevScore = predictionHistory[predictionHistory.length - 2];
+                const prevPrevScore = predictionHistory[predictionHistory.length - 3];
+                
+                // Detect sudden rise (non-basketball → basketball clip in commercial)
+                if (prevScore < 0.3 && currentScore > 0.7 && prevPrevScore < 0.3) {
+                    isOutlier = true;
+                    outlierType = "commercial_basketball_clip";
+                }
+                
+                // Detect sudden drop (basketball → commercial break)
+                if (prevScore > 0.7 && currentScore < 0.3 && prevPrevScore > 0.7) {
+                    isOutlier = true;
+                    outlierType = "basketball_to_commercial";
+                }
+            }
+            
+            // Log outliers for debugging
+            if (isOutlier) {
+                console.log(`ONNX Worker: Detected potential outlier: ${outlierType}, Score: ${rawScore.toFixed(4)}`);
+            }
+            
+            // Advanced state transition with majority voting and outlier handling
+            let newState;
+            
+            // Determine current classification based on thresholds
+            let currentClassification = null;
+            if (averageScore > UPPER_THRESHOLD) {
+                currentClassification = true; // Basketball
+            } else if (averageScore < LOWER_THRESHOLD) {
+                currentClassification = false; // Not basketball
+            } else {
+                // In hysteresis zone, maintain previous state
+                currentClassification = lastState !== null ? lastState : false;
+            }
+            
+            // Add to classification history
+            classificationHistory.push(currentClassification);
+            if (classificationHistory.length > PREDICTION_HISTORY_SIZE) {
+                classificationHistory.shift(); // Remove oldest
+            }
+            
+            // Count true (basketball) classifications in history
+            const basketballCount = classificationHistory.filter(c => c === true).length;
+            const basketballRatio = basketballCount / classificationHistory.length;
+            
+            // Handle outlier cases with consistency counter
+            if (isOutlier) {
+                // If outlier aligns with the majority state, reset counter - it's probably not an outlier
+                if ((outlierType === "commercial_basketball_clip" && basketballRatio > MAJORITY_THRESHOLD) ||
+                    (outlierType === "basketball_to_commercial" && basketballRatio < (1 - MAJORITY_THRESHOLD))) {
+                    consistentOutlierCount = 0;
+                } else {
+                    // Otherwise, increment counter
+                    consistentOutlierCount++;
+                }
+            } else {
+                // Not an outlier frame, decrease counter gradually
+                consistentOutlierCount = Math.max(0, consistentOutlierCount - 1);
+            }
+            
+            // If we've seen consistent outliers, they might be real scene changes - don't filter
+            if (consistentOutlierCount >= OUTLIER_CONSISTENCY_COUNT) {
+                newState = currentClassification;
+                console.log(`ONNX Worker: Consistent change detected, accepting new state: ${newState}`);
+                consistentOutlierCount = 0; // Reset after accepting
+            } 
+            // Otherwise use majority voting for stability
+            else {
+                // Require supermajority to change state
+                if (basketballRatio > MAJORITY_THRESHOLD) {
+                    newState = true;
+                } else if (basketballRatio < (1 - MAJORITY_THRESHOLD)) {
+                    newState = false;
+                } else {
+                    // Not enough consensus, maintain previous state
+                    newState = lastState !== null ? lastState : false;
+                }
+            }
+            
+            // Update state
             lastState = newState;
-
+            
             const prediction = newState ? "Basketball Detected" : "No Basketball";
-            // console.log(`Score: ${score.toFixed(4)}, Prediction: ${prediction}`); // Log score and result
+            
+            // Enhanced logging for debugging temporal classification
+            console.log(`Raw: ${rawScore.toFixed(3)}, EMA: ${averageScore.toFixed(3)}, ` +
+                      `BasketballRatio: ${basketballRatio.toFixed(2)}, ` +
+                      `Trend: ${trend.toFixed(3)}, ` +
+                      `OutlierCount: ${consistentOutlierCount}, ` +
+                      `Prediction: ${prediction}`);
 
             // 5. Send prediction back
             self.postMessage({
                 type: 'predictionResult',
                 result: prediction
             });
-
-            // *** ADD LOGGING HERE ***
-            console.log('ONNX Raw Output:', results);
-            console.log('ONNX Output Tensor Data:', outputTensor.data);
 
             console.timeEnd("inference_cycle"); // End full cycle timing
 
