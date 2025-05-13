@@ -274,6 +274,52 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
         }
+        
+        // Set adaptive sound toggle state
+        const adaptiveToggle = document.getElementById('adaptive-sound-toggle');
+        if (adaptiveToggle && resp.adaptiveSoundEnabled !== undefined) {
+            adaptiveToggle.checked = resp.adaptiveSoundEnabled;
+        }
+        
+        // Set scene sensitivity slider state
+        const sceneSlider = document.getElementById('scene-sensitivity-slider');
+        if (sceneSlider && resp.sceneDetectionThreshold !== undefined) {
+            sceneSlider.value = resp.sceneDetectionThreshold;
+            updateSceneSensitivityDisplay(resp.sceneDetectionThreshold);
+        }
+        
+        // Update basketball state display if available
+        if (resp.lastBasketballState !== null) {
+            const predText = resp.lastBasketballState ? 'Basketball' : 'No Basketball';
+            const lp = document.getElementById('launcher-prediction');
+            if (lp) lp.textContent = `Prediction: ${predText}`;
+            
+            // Also update the prediction display if it exists
+            if (predictionDisplay) {
+                predictionDisplay.textContent = predText;
+                if (predText === 'Basketball') {
+                    predictionDisplay.classList.add('prediction-basketball');
+                } else {
+                    predictionDisplay.classList.remove('prediction-basketball');
+                }
+            }
+        } else if (resp.lastPrediction) {
+            // Use lastPrediction as fallback when lastBasketballState is null
+            const predText = resp.lastPrediction === 'Basketball Detected' ? 'Basketball' : 'No Basketball';
+            const lp = document.getElementById('launcher-prediction');
+            if (lp) lp.textContent = `Prediction: ${predText}`;
+            
+            // Also update the prediction display if it exists
+            if (predictionDisplay) {
+                predictionDisplay.textContent = predText;
+                if (predText === 'Basketball') {
+                    predictionDisplay.classList.add('prediction-basketball');
+                } else {
+                    predictionDisplay.classList.remove('prediction-basketball');
+                }
+            }
+        }
+        
         // Update initial UI state based on capture-state
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             const currentTabId = tabs[0]?.id;
@@ -286,13 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
-    chrome.runtime.sendMessage({ type: 'request-last-prediction' }, (r) => {
-        if (!chrome.runtime.lastError && r?.success && r.prediction) {
-            const txt = r.prediction === 'Basketball Detected' ? 'Basketball' : 'No Basketball';
-            const lp = document.getElementById('launcher-prediction');
-            if (lp) lp.textContent = `Prediction: ${txt}`;
-        }
-    });
+    
     // Settings drawer open/close toggle
     const settingsBtn = document.getElementById('settings-btn');
     const settingsDrawer = document.getElementById('settings-drawer');
@@ -330,8 +370,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Adaptive sound toggle: inform background of initial state and listen for changes
     const adaptiveToggle = document.getElementById('adaptive-sound-toggle');
     if (adaptiveToggle) {
-        // Send default state to background
-        chrome.runtime.sendMessage({ type: 'set-adaptive-sound', enabled: adaptiveToggle.checked });
+        // Only send to background on changes, not on initial load
         adaptiveToggle.addEventListener('change', () => {
             chrome.runtime.sendMessage({ type: 'set-adaptive-sound', enabled: adaptiveToggle.checked });
         });
@@ -341,8 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const sceneSlider = document.getElementById('scene-sensitivity-slider');
     const sceneValue = document.getElementById('scene-sensitivity-value');
     if (sceneSlider && sceneValue) {
-        // Initial value display
-        updateSceneSensitivityDisplay(sceneSlider.value);
+        // Initial value display is now handled by the request-capture-state response above
         
         // Listen for changes
         sceneSlider.addEventListener('input', function() {

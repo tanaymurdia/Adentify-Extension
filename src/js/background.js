@@ -20,6 +20,9 @@ let tabSwitchEnabled = false;
 
 let sceneDetectionThreshold = 0.15;
 
+// Add timers for debouncing mute/unmute operations
+let muteDebounceTimers = {};
+
 // Stub sendMessageToContentScript to no-op (UI moved to popup)
 
 // 1. Action Clicked: Toggle the overlay UI in the active tab
@@ -124,19 +127,47 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                   lastPrediction = prediction;
                   chrome.runtime.sendMessage({ type: 'onnxPrediction', payload: { prediction } });
 
-                  // Mute/unmute logic
+                  // Mute/unmute logic with debouncing
                   const shouldBeMuted = prediction !== 'Basketball Detected';
                   if (adaptiveSoundEnabled) {
-                      if (tabMutedState[message.payload.tabId] !== shouldBeMuted) {
-                          console.log(`Background: Updating mute state for tab ${message.payload.tabId} to ${shouldBeMuted} based on prediction: ${prediction}`);
-                          chrome.tabs.update(message.payload.tabId, { muted: shouldBeMuted })
-                            .then(() => { tabMutedState[message.payload.tabId] = shouldBeMuted; })
-                            .catch(err => { console.error('Background: Failed to update mute state:', err); delete tabMutedState[message.payload.tabId]; });
+                      const tabId = message.payload.tabId;
+                      
+                      // Clear any existing timeout for this tab
+                      if (muteDebounceTimers[tabId]) {
+                          clearTimeout(muteDebounceTimers[tabId]);
+                          delete muteDebounceTimers[tabId];
+                      }
+                      
+                      // Only schedule a state change if the current state is different
+                      if (tabMutedState[tabId] !== shouldBeMuted) {
+                          console.log(`Background: Scheduling mute state update for tab ${tabId} to ${shouldBeMuted} in 500ms`);
+                          
+                          // Set a new timeout
+                          muteDebounceTimers[tabId] = setTimeout(() => {
+                              console.log(`Background: Executing delayed mute state update for tab ${tabId} to ${shouldBeMuted}`);
+                              chrome.tabs.update(tabId, { muted: shouldBeMuted })
+                                .then(() => { 
+                                    tabMutedState[tabId] = shouldBeMuted; 
+                                    delete muteDebounceTimers[tabId];
+                                })
+                                .catch(err => { 
+                                    console.error('Background: Failed to update mute state:', err); 
+                                    delete tabMutedState[tabId];
+                                    delete muteDebounceTimers[tabId];
+                                });
+                          }, 500);
                       }
                   } else {
-                      if (tabMutedState[message.payload.tabId]) {
-                          chrome.tabs.update(message.payload.tabId, { muted: false })
-                            .then(() => delete tabMutedState[message.payload.tabId])
+                      const tabId = message.payload.tabId;
+                      // Clear any existing timeout
+                      if (muteDebounceTimers[tabId]) {
+                          clearTimeout(muteDebounceTimers[tabId]);
+                          delete muteDebounceTimers[tabId];
+                      }
+                      
+                      if (tabMutedState[tabId]) {
+                          chrome.tabs.update(tabId, { muted: false })
+                            .then(() => delete tabMutedState[tabId])
                             .catch(err => console.error('Background: Failed to unmute on adaptive-sound-off:', err));
                       }
                   }
@@ -187,12 +218,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.log("Background: Received request-capture-state from popup.");
       const activeTabId = targetTabIdForCapture || captureTabId;
       uiActiveTabId = activeTabId;
-      sendResponse({ success: true, isActive: isCaptureActive, targetTabId: activeTabId, fallbackTabId, tabSwitchEnabled });
+      sendResponse({ 
+        success: true, 
+        isActive: isCaptureActive, 
+        targetTabId: activeTabId, 
+        fallbackTabId, 
+        tabSwitchEnabled,
+        adaptiveSoundEnabled,
+        sceneDetectionThreshold,
+        lastBasketballState,
+        lastPrediction
+      });
       return false;
     case 'set-adaptive-sound':
       adaptiveSoundEnabled = !!message.enabled;
       console.log(`Background: Adaptive sound set to ${adaptiveSoundEnabled}`);
       if (!adaptiveSoundEnabled) {
+        // Clear any pending mute operations
+        for (const tabId in muteDebounceTimers) {
+          clearTimeout(muteDebounceTimers[tabId]);
+          delete muteDebounceTimers[tabId];
+        }
+        
         const tabToRestore = targetTabIdForCapture || captureTabId;
         if (tabToRestore && tabMutedState[tabToRestore]) {
           chrome.tabs.update(tabToRestore, { muted: false })
@@ -623,6 +670,12 @@ function cleanupState() {
     captureTabId = null;
     targetTabIdForCapture = null;
 
+    // Clear any pending mute/unmute timers
+    for (const tabId in muteDebounceTimers) {
+        clearTimeout(muteDebounceTimers[tabId]);
+        delete muteDebounceTimers[tabId];
+    }
+    
     restoreWindowState();
 
     console.log("Background: State cleanup complete.");
