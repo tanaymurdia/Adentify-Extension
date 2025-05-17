@@ -66,9 +66,6 @@ yarn-error.log
 /build
 /dist
 
-# ONNX model files (large binary files)
-*.onnx
-
 # Editor directories and files
 .idea/
 .vscode/
