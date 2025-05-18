@@ -20,7 +20,7 @@ Adentify is a Chrome extension that employs machine learning to recognize basket
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/Adentify-Extension.git
+   git clone https://github.com/tanaymurdia/Adentify-Extension.git
    ```
 
 2. Install dependencies:
