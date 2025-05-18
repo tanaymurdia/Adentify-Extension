@@ -177,10 +177,6 @@ The custom model architecture offers several advantages:
 
 Adentify processes all video content locally on your device. No video data or analysis results are transmitted to external servers. The machine learning model operates entirely within your browser, ensuring privacy during content analysis.
 
-## License
-
-[MIT License](LICENSE)
-
 ## Acknowledgments
 
 - Basketball detection model architecture based on hypernetwork research and EfficientNetV2
