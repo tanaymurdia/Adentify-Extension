@@ -119,11 +119,8 @@ function updateUI(state, currentTabId, targetTabId) {
 
 // Update status function
 function updateStatus(message) {
-    // no-op: status messages removed
     console.log("Launcher status:", message);
 }
-
-// --- Event Listeners for Buttons ---
 
 // Removed desktop capture option entirely
 
@@ -138,31 +135,21 @@ if (previewToggleButton) {
     });
 }
 
-// --- Helper for Handling Background Response & Closing Window ---
-
 function handleBackgroundResponse(response, successMessage) {
     if (chrome.runtime.lastError) {
         updateStatus(`Error communicating with background: ${chrome.runtime.lastError.message}`);
         console.error("Error sending message:", chrome.runtime.lastError.message);
-        // Optionally re-enable buttons on error? Depends on desired UX.
-        // recordDesktopButton.disabled = false;
-        // recordTabButton.disabled = false;
     } else if (response && response.success) {
         updateStatus(successMessage + " Closing...");
         console.log(successMessage, "Response:", response);
-        // Close the launcher window after a short delay only if not casting
         maybeClose(500);
     } else {
-        // Background script indicated failure or unexpected response
         const errorMessage = response?.error || "Background script failed to process request.";
         updateStatus(`Error: ${errorMessage}`);
         console.warn("Background script response indicates failure:", response);
-        // Re-enable buttons if process failed early
         if (recordTabButton) recordTabButton.disabled = false;
     }
 }
-
-// --- Listener to Close Window if Requested by Background ---
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === 'close-launcher') {
@@ -170,11 +157,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         updateStatus("Closing launcher...");
         maybeClose();
         sendResponse({status: 'closing'});
-        return true; // Indicates async response, though we close immediately
+        return true;
     }
 });
 
-// --- Combined listener for preview frames and predictions ---
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Handle preview frame
     if (message.type === 'preview-frame' && message.payload?.frameDataUrl) {
@@ -241,10 +227,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ status: 'ui-updated-inactive' });
         return false;
     }
-    // Let other listeners handle other message types (e.g., close-launcher)
 });
-
-// --- Initial State ---
 
 document.addEventListener('DOMContentLoaded', () => {
     chrome.runtime.sendMessage({ type: 'request-capture-state' }, (resp) => {

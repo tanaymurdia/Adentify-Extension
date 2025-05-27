@@ -8,7 +8,7 @@ let audioContext = null; // Keep document awake
 let oscillator = null; // Silent audio source
 let onnxWorker = null; // Reference to the worker
 let isStopping = false; // Flag to prevent multiple stop attempts
-let capturedTabId = null; // --- ADDED: Store the tab ID ---
+let capturedTabId = null;
 
 // Scene detection variables
 let previousFrameData = null;
@@ -65,21 +65,18 @@ async function startRecording(payload) {
   // Reset stopping flag when starting a new recording
   isStopping = false;
 
-  // --- ADDED: Check for and store tabId ---
   if (!payload || !payload.streamId || !payload.captureType || !payload.tabId) {
      console.error("Offscreen: Missing streamId, captureType, or tabId in start payload.");
      sendMessageToBackground({ type: 'offscreen-error', payload: { error: 'Missing start parameters (including tabId)' } });
      return;
   }
-  capturedTabId = payload.tabId; // Store the tabId
+  capturedTabId = payload.tabId;
   console.log(`Offscreen: Associated with tab ID: ${capturedTabId}`);
   
-  // Update scene detection threshold if provided
   if (payload.sceneDetectionThreshold !== undefined) {
     sceneDetectionThreshold = payload.sceneDetectionThreshold;
     console.log(`Offscreen: Initial scene detection threshold set to ${sceneDetectionThreshold}`);
   }
-  // --- END ADDITION ---
 
   const { streamId, captureType } = payload;
   const mediaSource = captureType === 'tab' ? 'tab' : 'desktop';
@@ -98,7 +95,6 @@ async function startRecording(payload) {
 
     console.log("Offscreen: Media stream obtained successfully.");
 
-    // --- Start Preview Generation ---
     await startPreview(mediaStream);
 
     // Handle stream ending unexpectedly (e.g., user stops sharing)
@@ -133,10 +129,8 @@ async function startRecording(payload) {
       }
       recorder = null;
 
-      // --- MOVED & REORDERED: Send message AFTER cleanup ---
       sendMessageToBackground({ type: 'offscreen-recording-stopped' });
       console.log("Offscreen: Sent 'offscreen-recording-stopped' after cleanup.");
-      // --- END MOVE ---
 
       // Close the offscreen document after a short delay
       setTimeout(() => window.close(), 500);
@@ -197,8 +191,6 @@ async function stopRecording() {
   }
 }
 
-// --- NEW: Preview Generation Logic ---
-
 async function startPreview(stream) {
     console.log("Offscreen: startPreview called.");
     if (!stream || !stream.active || stream.getVideoTracks().length === 0) {
@@ -207,7 +199,6 @@ async function startPreview(stream) {
     }
 
     try {
-        // --- Keep Awake Audio Start ---
         if (!audioContext) {
             try {
                 audioContext = new AudioContext();
@@ -226,7 +217,6 @@ async function startPreview(stream) {
                 oscillator = null;
             }
         }
-        // --- End Keep Awake Audio Start ---
 
         previewCanvas = document.getElementById('preview-canvas');
         if (!previewCanvas) {
@@ -289,7 +279,6 @@ function stopPreview() {
     // Reset scene detection variables
     previousFrameData = null;
 
-    // --- Keep Awake Audio Stop ---
     if (oscillator) {
         try {
             oscillator.stop();
@@ -303,7 +292,6 @@ function stopPreview() {
         } catch (e) { /* Ignore error if already closed */ }
         audioContext = null;
     }
-     // --- End Keep Awake Audio Stop ---
 
     // Stop and clear video element
     if (previewVideoElement) {
@@ -402,19 +390,17 @@ function calculateSceneChangeMetrics(currentFrame, previousFrame) {
         currentEdges: null
     };
     
-    // 1. Calculate block-based motion and center-weighted scores
+
     const { motionScore, centerScore } = analyzeMotionAndCenter(currentFrame, previousFrame);
     metrics.motionScore = motionScore;
     metrics.centerScore = centerScore;
     
-    // 2. Calculate color histogram difference
     const currentHistogram = calculateColorHistogram(currentFrame);
     metrics.currentHistogram = currentHistogram;
     if (previousHistogram) {
         metrics.colorScore = compareHistograms(currentHistogram, previousHistogram);
     }
     
-    // 3. Calculate edge differences
     const currentEdges = detectEdges(currentFrame);
     metrics.currentEdges = currentEdges;
     if (previousEdges) {
@@ -718,7 +704,6 @@ function grabFrame() {
     }
 }
 
-// --- NEW: Worker Initialization ---
 function initializeWorker() {
     if (onnxWorker) {
         console.log("Offscreen: Worker already initialized.");
