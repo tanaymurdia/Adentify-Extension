@@ -20,10 +20,22 @@ let tabSwitchEnabled = false;
 
 let sceneDetectionThreshold = 0.15;
 
+// Store the last preview frame to send to newly opened popups
+let lastPreviewFrame = null;
+
 // Add timers for debouncing mute/unmute operations
 let muteDebounceTimers = {};
 
-// Stub sendMessageToContentScript to no-op (UI moved to popup)
+// Function to send messages to content scripts
+function sendMessageToContentScript(tabId, message) {
+  if (!tabId) {
+    console.error("Cannot send message to content script: No tab ID provided");
+    return;
+  }
+  chrome.tabs.sendMessage(tabId, message).catch(error => {
+    console.warn(`Error sending message type ${message.type} to tab ${tabId}:`, error.message);
+  });
+}
 
 // 1. Action Clicked: Toggle the overlay UI in the active tab
 chrome.action.onClicked.addListener(async (tab) => {
@@ -113,6 +125,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               break;
           case 'preview-frame':
               if (message.payload?.frameDataUrl) {
+                  // Store the latest preview frame
+                  lastPreviewFrame = message.payload.frameDataUrl;
+                  
                   chrome.runtime.sendMessage({
                       type: 'preview-frame',
                       payload: { frameDataUrl: message.payload.frameDataUrl }
@@ -227,7 +242,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         adaptiveSoundEnabled,
         sceneDetectionThreshold,
         lastBasketballState,
-        lastPrediction
+        lastPrediction,
+        lastPreviewFrame
       });
       return false;
     case 'set-adaptive-sound':

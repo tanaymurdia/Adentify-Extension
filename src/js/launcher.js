@@ -255,6 +255,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (resp.fallbackTabId != null) {
             selectedTabId = resp.fallbackTabId;
         }
+        
+        // Display the last preview frame if available
+        if (resp.lastPreviewFrame) {
+            const canvas = document.getElementById('adentify-preview-canvas');
+            if (canvas) {
+                const ctx = canvas.getContext('2d');
+                const img = new Image();
+                img.onload = () => {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                };
+                img.src = resp.lastPreviewFrame;
+            }
+        }
+        
         const tabSwitchToggle = document.getElementById('tab-switch-toggle');
         const selectorItem = document.querySelector('.tab-selector-item');
         if (tabSwitchToggle) {

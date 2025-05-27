@@ -730,6 +730,30 @@ function initializeWorker() {
         onnxWorker = new Worker(workerUrl);
         console.log("Offscreen: ONNX Worker created from:", workerUrl);
 
+        // Process the first frame immediately when the worker is ready
+        setTimeout(() => {
+            if (previewVideoElement && previewCanvasCtx && onnxWorker) {
+                console.log("Offscreen: Processing first frame immediately");
+                previewCanvasCtx.drawImage(previewVideoElement, 0, 0, previewCanvas.width, previewCanvas.height);
+                
+                // Get ImageData for worker processing
+                const imageData = previewCanvasCtx.getImageData(0, 0, previewCanvas.width, previewCanvas.height);
+                
+                // Send first frame to worker
+                onnxWorker.postMessage({
+                    type: 'processFrame',
+                    frameData: imageData
+                });
+                
+                // Send preview frame
+                const frameDataUrl = previewCanvas.toDataURL('image/jpeg', PREVIEW_QUALITY);
+                sendMessageToBackground({
+                    type: 'preview-frame',
+                    payload: { frameDataUrl: frameDataUrl }
+                });
+            }
+        }, 500); // Short delay to ensure video is ready
+
         onnxWorker.onmessage = (event) => {
             if (event.data?.type === 'predictionResult') {
                 // Forward the prediction to the background script
@@ -745,6 +769,8 @@ function initializeWorker() {
                 let isFirstPrediction = !window._hasProcessedFirstFrame;
                 if (isFirstPrediction) {
                     window._hasProcessedFirstFrame = true;
+                    // Ensure we always grab a frame for the first prediction
+                    grabFrame();
                 }
                 
                 // Prevent processing frames if we're already processing one
